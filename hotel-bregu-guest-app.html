@@ -633,7 +633,23 @@ details.faq p{ font-size:12.5px; opacity:0.65; margin:8px 0 0; line-height:1.6; 
 
 </div>
 
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
 <script>
+// --- Live backend connection (Hotel Bregu API on Render) ---
+const API_BASE = "https://bregu-package.onrender.com";
+let socket = null;
+try {
+  socket = io(API_BASE, { transports: ['websocket', 'polling'] });
+  socket.on('connect', () => {
+    socket.emit('join_room', currentRoom);
+  });
+  socket.on('new_message', (msg) => {
+    if (msg.sender === 'staff' && msg.room_number === currentRoom) {
+      pushInMsg(msg.text);
+    }
+  });
+} catch (e) { console.warn('Realtime chat unavailable, falling back to local demo mode.', e); }
+
 const translations = {
   sq: {
     "eyebrow":"Udhërrëfyesi i mysafirit","room.chip":"Dhoma 214 · Kati 2","call.button":"Telefono",
@@ -950,6 +966,8 @@ function initFromUrl(){
   if(rInput) rInput.value = currentRoom;
   if(fInput) fInput.value = currentFloor;
   renderStaffQR();
+  loadChatHistory();
+  if(socket) socket.emit('join_room', currentRoom);
 }
 window.addEventListener('DOMContentLoaded', initFromUrl);
 
@@ -985,6 +1003,15 @@ function timeNow(){
   return d.getHours().toString().padStart(2,'0')+':'+d.getMinutes().toString().padStart(2,'0');
 }
 
+function apiPost(path, body){
+  if(!API_BASE) return Promise.resolve(null);
+  return fetch(API_BASE + path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  }).catch(err => { console.warn('API call failed:', err); return null; });
+}
+
 function pushInMsg(text){
   const log = document.getElementById('chat-log');
   const inMsg = document.createElement('div');
@@ -1003,16 +1030,22 @@ function pushOutMsg(text){
   log.scrollTop = log.scrollHeight;
 }
 
+async function loadChatHistory(){
+  if(!API_BASE) return;
+  try{
+    const res = await fetch(API_BASE + '/api/messages/' + encodeURIComponent(currentRoom));
+    const msgs = await res.json();
+    msgs.forEach(m => { m.sender === 'guest' ? pushOutMsg(m.text) : pushInMsg(m.text); });
+  }catch(e){ console.warn('Could not load chat history', e); }
+}
+
 function sendMsg(){
   const input = document.getElementById('chat-text');
   const text = input.value.trim();
   if(!text) return;
   pushOutMsg(text);
   input.value = '';
-  setTimeout(()=>{
-    const replies = translations[currentLang]['chat.replies'];
-    pushInMsg(replies[Math.floor(Math.random()*replies.length)]);
-  }, 1100);
+  apiPost('/api/messages', { room_number: currentRoom, sender: 'guest', text });
 }
 
 function sendQuickRequest(key){
@@ -1021,10 +1054,7 @@ function sendQuickRequest(key){
   pushOutMsg(prefix + ' ' + label);
   showToast(translations[currentLang]['req.confirmToast']);
   showView('chat');
-  setTimeout(()=>{
-    const replies = translations[currentLang]['chat.replies'];
-    pushInMsg(replies[Math.floor(Math.random()*replies.length)]);
-  }, 1100);
+  apiPost('/api/quick-requests', { room_number: currentRoom, request_type: label });
 }
 
 function addRoomService(nameKey, price){
@@ -1047,16 +1077,14 @@ function renderCart(){
 
 function sendRoomService(){
   if(rsCart.length === 0) return;
-  const lines = rsCart.map(item=>translations[currentLang][item.nameKey]).join(', ');
+  const items = rsCart.map(item => ({ name: translations[currentLang][item.nameKey], price: item.price }));
+  const lines = items.map(i => i.name).join(', ');
   pushOutMsg((translations[currentLang]['roomservice.heading'])+': '+lines);
   showToast(translations[currentLang]['roomservice.sentToast']);
   rsCart = [];
   renderCart();
   showView('chat');
-  setTimeout(()=>{
-    const replies = translations[currentLang]['chat.replies'];
-    pushInMsg(replies[Math.floor(Math.random()*replies.length)]);
-  }, 1100);
+  apiPost('/api/room-service', { room_number: currentRoom, items });
 }
 
 function rateStay(v){
@@ -1067,8 +1095,10 @@ function rateStay(v){
 }
 
 function submitFeedback(){
+  const comment = document.getElementById('fb-text').value.trim();
   const box = document.getElementById('feedback-box');
   box.innerHTML = '<p class="fb-thanks">'+translations[currentLang]['feedback.thanks']+'</p>';
+  apiPost('/api/feedback', { room_number: currentRoom, rating: stayRating || 5, comment });
 }
 </script>
 

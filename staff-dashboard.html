@@ -53,7 +53,7 @@ body{ margin:0; font-family:'Work Sans',sans-serif; background:var(--sand-dim); 
   <h1>Bregu — Paneli i stafit</h1>
   <div class="config-row">
     <span class="conn" id="conn-status">● jo i lidhur</span>
-    <input id="backend-url" placeholder="http://localhost:3001" value="http://localhost:3001">
+    <input id="backend-url" placeholder="https://bregu-package.onrender.com" value="https://bregu-package.onrender.com">
     <button onclick="connect()">Lidhu</button>
   </div>
 </div>
@@ -88,7 +88,7 @@ body{ margin:0; font-family:'Work Sans',sans-serif; background:var(--sand-dim); 
 <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
 <script>
 let socket = null;
-let apiBase = 'http://localhost:3001';
+let apiBase = 'https://bregu-package.onrender.com';
 let activeRoom = null;
 let knownRooms = new Set();
 let allMessages = [];
@@ -198,6 +198,8 @@ function renderThread(){
   box.innerHTML = allMessages.map(m => `<div class="msg ${m.sender}">${m.text}</div>`).join('');
   box.scrollTop = box.scrollHeight;
 }
+
+window.addEventListener('DOMContentLoaded', connect);
 
 async function sendReply(){
   const input = document.getElementById('reply-input');
