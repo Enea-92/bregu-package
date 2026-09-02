@@ -90,8 +90,7 @@ app.post('/api/messages', async (req, res) => {
   const doc = await Message.create({ room_number, sender, text });
   const message = toDTO(doc);
 
-  io.to(roomChannel(room_number)).emit('new_message', message);
-  io.to('staff').emit('new_message', message);
+  io.to(roomChannel(room_number)).to('staff').emit('new_message', message);
   res.status(201).json(message);
 });
 
@@ -154,8 +153,7 @@ app.patch('/api/room-service/:id', requireStaff, async (req, res) => {
   if (req.body.status === 'delivered') changes.delivered_at = new Date();
   const doc = await RoomServiceOrder.findByIdAndUpdate(req.params.id, changes, { new: true });
   const order = toDTO(doc);
-  io.to(roomChannel(order.room_number)).emit('order_updated', order);
-  io.to('staff').emit('order_updated', order);
+  io.to(roomChannel(order.room_number)).to('staff').emit('order_updated', order);
   res.json(order);
 });
 
@@ -316,8 +314,7 @@ async function runFollowUpCheck() {
       const text = 'Shpresojmë t\'ju ketë pëlqyer porosia! Nëse ju duhet diçka tjetër, jemi këtu. 🙂';
       const msgDoc = await Message.create({ room_number: order.room_number, sender: 'staff', text });
       const message = toDTO(msgDoc);
-      io.to(roomChannel(order.room_number)).emit('new_message', message);
-      io.to('staff').emit('new_message', message);
+      io.to(roomChannel(order.room_number)).to('staff').emit('new_message', message);
       order.followed_up = true;
       await order.save();
     }
