@@ -50,6 +50,20 @@ select{ border:0.5px solid var(--line); border-radius:7px; padding:8px 10px; fon
 .locked{ text-align:center; padding:60px 20px; }
 .locked input{ font-family:'IBM Plex Mono',monospace; padding:10px 14px; border-radius:8px; border:0.5px solid var(--line); font-size:14px; width:220px; }
 .locked button{ border:none; background:var(--sea); color:var(--sand); border-radius:8px; padding:10px 18px; font-size:13px; font-weight:500; cursor:pointer; margin-left:8px; }
+.qr-card{ text-align:center; }
+.qr-card img{ width:100%; max-width:150px; border-radius:8px; border:0.5px solid var(--line); }
+.qr-card p{ font-family:'IBM Plex Mono',monospace; font-size:12px; margin:6px 0 2px; font-weight:500; }
+.qr-card a{ font-size:11px; color:var(--aqua-dark); text-decoration:none; }
+
+@media print{
+  body *{ visibility:hidden; }
+  .printable-card, .printable-card *{ visibility:visible; }
+  .printable-card{ position:absolute; top:0; left:0; width:100%; border:none; box-shadow:none; padding:0; }
+  .printable-card > h2, .printable-card > p.hint, .printable-card .field-row,
+  .printable-card .add-btn, .printable-card .save-btn, #qr-queue { display:none !important; }
+  #qr-grid{ display:grid !important; }
+  body{ background:#fff; }
+}
 </style>
 </head>
 <body>
@@ -71,6 +85,26 @@ select{ border:0.5px solid var(--line); border-radius:7px; padding:8px 10px; fon
 </div>
 
 <div class="wrap" id="main-view" style="display:none;">
+
+  <div class="card printable-card" id="qr-card">
+    <h2>Gjenero kode QR për dhoma</h2>
+    <p class="hint">Çdo dhomë ka nevojë vetëm për 1 kod QR — hap app-in me numrin e dhomës të para-plotësuar. Mund të krijosh një dhomë të vetme ose një grup me interval (p.sh. 101–110).</p>
+    <div class="field-row"><label>URL e app-it</label><input id="qr-app-url" placeholder="https://bregu-package-staff.onrender.com/hotel-bregu-guest-app.html" value="https://bregu-package-staff.onrender.com/hotel-bregu-guest-app.html"></div>
+
+    <p class="hint" style="margin:14px 0 8px; font-weight:500; opacity:0.8;">Shto dhoma në listë</p>
+    <div class="field-row"><label>Dhoma nga</label><input id="qr-room-from" placeholder="101" style="width:100px;"></div>
+    <div class="field-row"><label>Dhoma deri (opsionale)</label><input id="qr-room-to" placeholder="110 (lëre bosh për 1 dhomë)" style="width:100px;"></div>
+    <div class="field-row"><label>Kati</label><input id="qr-floor" placeholder="1" style="width:100px;"></div>
+    <button class="add-btn" onclick="addQrGroup()">+ Shto në listë</button>
+
+    <div id="qr-queue" style="margin:12px 0; display:flex; flex-wrap:wrap; gap:6px;"></div>
+
+    <button class="save-btn" onclick="generateQrBatch()">Gjenero të gjitha kodet QR</button>
+    <button class="save-btn" style="background:var(--gold); color:var(--ink); margin-left:8px; display:none;" id="qr-download-zip" onclick="downloadQrZip()">⬇ Shkarko të gjitha (ZIP)</button>
+    <button class="save-btn" style="background:var(--sand-dim); color:var(--ink); margin-left:8px; display:none;" id="qr-print-btn" onclick="window.print()">🖨 Printo faqen</button>
+
+    <div id="qr-grid" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(150px, 1fr)); gap:14px; margin-top:16px;"></div>
+  </div>
 
   <div class="card">
     <h2>Vendndodhja e hotelit (për hartën)</h2>
@@ -113,13 +147,27 @@ select{ border:0.5px solid var(--line); border-radius:7px; padding:8px 10px; fon
     <button class="add-btn" onclick="addRecommendation()">+ Shto rekomandim</button>
   </div>
 
+  <div class="card" style="margin-top:24px;">
+    <h2>Ndrysho fjalëkalimin</h2>
+    <p class="hint">Ruhet i koduar (hash) në bazën e të dhënash — ndryshimi ka efekt menjëherë, pa pasur nevojë të prekësh Render.</p>
+    <div class="field-row"><label>Roli</label>
+      <select id="pw-role">
+        <option value="admin">Admin</option>
+        <option value="staff">Staf</option>
+      </select>
+    </div>
+    <div class="field-row"><label>Fjalëkalimi i ri</label><input type="password" id="pw-new" placeholder="Min. 4 karaktere"></div>
+    <button class="save-btn" onclick="changePassword()">Ndrysho fjalëkalimin</button>
+  </div>
+
 </div>
 
 <div class="toast" id="toast"></div>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script>
 let apiBase = 'https://bregu-package.onrender.com';
-let adminPassword = '123456';
+let adminPassword = '';
 let content = null;
 let recommendations = [];
 
@@ -129,6 +177,90 @@ function showToast(text, isError){
   t.style.background = isError ? '#C1592E' : '#12302E';
   t.classList.add('show');
   setTimeout(()=>t.classList.remove('show'), 2500);
+}
+
+let qrQueue = []; // { fromRoom, toRoom, floor }
+let qrRooms = [];  // expanded individual { room, floor } after generation
+
+function addQrGroup(){
+  const from = document.getElementById('qr-room-from').value.trim();
+  const to = document.getElementById('qr-room-to').value.trim();
+  const floor = document.getElementById('qr-floor').value.trim() || '1';
+  if(!from){ showToast('Vendos të paktën numrin e dhomës "nga".', true); return; }
+  qrQueue.push({ from, to: to || from, floor });
+  document.getElementById('qr-room-from').value = '';
+  document.getElementById('qr-room-to').value = '';
+  renderQrQueue();
+}
+
+function removeQrGroup(idx){
+  qrQueue.splice(idx, 1);
+  renderQrQueue();
+}
+
+function renderQrQueue(){
+  const box = document.getElementById('qr-queue');
+  box.innerHTML = qrQueue.map((g, idx) => {
+    const label = g.from === g.to ? `Dhoma ${g.from}` : `Dhoma ${g.from}–${g.to}`;
+    return `<span class="lang-tab on" style="display:inline-flex; align-items:center; gap:6px;">${label} · Kati ${g.floor} <button onclick="removeQrGroup(${idx})" style="background:none;border:none;color:inherit;cursor:pointer;font-weight:700;">×</button></span>`;
+  }).join('');
+}
+
+function expandQrQueue(){
+  const rooms = [];
+  qrQueue.forEach(g => {
+    const fromNum = parseInt(g.from, 10);
+    const toNum = parseInt(g.to, 10);
+    if(!isNaN(fromNum) && !isNaN(toNum) && toNum >= fromNum && (toNum - fromNum) < 500){
+      for(let n = fromNum; n <= toNum; n++) rooms.push({ room: String(n), floor: g.floor });
+    } else {
+      rooms.push({ room: g.from, floor: g.floor });
+    }
+  });
+  return rooms;
+}
+
+function generateQrBatch(){
+  if(qrQueue.length === 0){ showToast('Shto të paktën një dhomë ose grup dhomash në listë.', true); return; }
+  const appUrl = document.getElementById('qr-app-url').value.trim().replace(/\/$/, '');
+  qrRooms = expandQrQueue();
+
+  const grid = document.getElementById('qr-grid');
+  grid.innerHTML = qrRooms.map(r => {
+    const fullUrl = appUrl + '?room=' + encodeURIComponent(r.room) + '&floor=' + encodeURIComponent(r.floor);
+    const qrSrc = 'https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=' + encodeURIComponent(fullUrl);
+    return `<div class="qr-card">
+      <img src="${qrSrc}" alt="QR dhoma ${r.room}">
+      <p>Dhoma ${r.room}</p>
+      <a href="${qrSrc}" download="dhoma-${r.room}-qr.png">⬇ PNG</a>
+    </div>`;
+  }).join('');
+
+  document.getElementById('qr-download-zip').style.display = qrRooms.length > 1 ? 'inline-block' : 'none';
+  document.getElementById('qr-print-btn').style.display = 'inline-block';
+  showToast(`U gjeneruan ${qrRooms.length} kode QR.`);
+}
+
+async function downloadQrZip(){
+  if(qrRooms.length === 0) return;
+  showToast('Duke përgatitur ZIP-in...');
+  try{
+    const appUrl = document.getElementById('qr-app-url').value.trim().replace(/\/$/, '');
+    const zip = new JSZip();
+    await Promise.all(qrRooms.map(async r => {
+      const fullUrl = appUrl + '?room=' + encodeURIComponent(r.room) + '&floor=' + encodeURIComponent(r.floor);
+      const qrSrc = 'https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=' + encodeURIComponent(fullUrl);
+      const res = await fetch(qrSrc);
+      const blob = await res.blob();
+      zip.file('dhoma-' + r.room + '-qr.png', blob);
+    }));
+    const zipBlob = await zip.generateAsync({ type: 'blob' });
+    const url = URL.createObjectURL(zipBlob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'kodet-qr-dhomat.zip';
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+  }catch(e){ showToast('ZIP-i dështoi — provo shkarkimin individual (PNG) për secilën dhomë.', true); }
 }
 
 async function unlock(){
@@ -343,6 +475,30 @@ async function deleteRecommendation(idx){
   recommendations.splice(idx,1);
   renderRecommendations();
   showToast('U fshi.');
+}
+
+async function changePassword(){
+  const role = document.getElementById('pw-role').value;
+  const newPassword = document.getElementById('pw-new').value;
+  if(!newPassword || newPassword.length < 4){
+    showToast('Fjalëkalimi duhet të ketë të paktën 4 karaktere.', true);
+    return;
+  }
+  try{
+    const res = await fetch(apiBase + '/api/auth/password', {
+      method:'PUT',
+      headers:{ 'Content-Type':'application/json', 'x-admin-password': adminPassword },
+      body: JSON.stringify({ role, newPassword })
+    });
+    if(!res.ok) throw new Error(await res.text());
+    document.getElementById('pw-new').value = '';
+    if(role === 'admin'){
+      adminPassword = newPassword;
+      showToast('Fjalëkalimi admin u ndryshua. E vendosa automatikisht për sesionin aktual.');
+    } else {
+      showToast('Fjalëkalimi i stafit u ndryshua.');
+    }
+  }catch(e){ showToast('Gabim duke ndryshuar fjalëkalimin.', true); }
 }
 </script>
 </body>
