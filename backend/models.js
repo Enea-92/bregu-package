@@ -85,6 +85,12 @@ const recommendationSchema = new mongoose.Schema({
   lng: Number
 });
 
+// --- Auth: admin/staff passwords stored as bcrypt hashes (singleton document) ---
+const authSettingsSchema = new mongoose.Schema({
+  admin_password_hash: { type: String, required: true },
+  staff_password_hash: { type: String, required: true }
+});
+
 module.exports = {
   Message: mongoose.model('Message', messageSchema),
   QuickRequest: mongoose.model('QuickRequest', quickRequestSchema),
@@ -92,5 +98,6 @@ module.exports = {
   Feedback: mongoose.model('Feedback', feedbackSchema),
   HotelContent: mongoose.model('HotelContent', hotelContentSchema),
   Recommendation: mongoose.model('Recommendation', recommendationSchema),
+  AuthSettings: mongoose.model('AuthSettings', authSettingsSchema),
   toDTO
 };

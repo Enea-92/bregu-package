@@ -6,32 +6,93 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const http = require('http');
+const crypto = require('crypto');
 const mongoose = require('mongoose');
 const { Server } = require('socket.io');
 const rateLimit = require('express-rate-limit');
-const { Message, QuickRequest, RoomServiceOrder, Feedback, HotelContent, Recommendation, toDTO } = require('./models');
+const bcrypt = require('bcryptjs');
+const { Message, QuickRequest, RoomServiceOrder, Feedback, HotelContent, Recommendation, AuthSettings, toDTO } = require('./models');
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'bregu-admin';
-const STAFF_PASSWORD = process.env.STAFF_PASSWORD || 'bregu-staff';
 const FOLLOWUP_HOURS = Number(process.env.FOLLOWUP_HOURS || 2); // hours after delivery to ask for feedback
 
-function requireAdmin(req, res, next) {
-  if (req.headers['x-admin-password'] !== ADMIN_PASSWORD) {
-    return res.status(401).json({ error: 'Fjalëkalim admin i pasaktë' });
-  }
-  next();
+// --- Signed room-session tokens ---
+// A QR code embeds one of these tokens instead of a plain room number.
+// The expiry is baked into the token at the moment staff GENERATES it —
+// not reset every time someone opens the link — so a forwarded link
+// genuinely stops working once it expires, no matter who has it or how
+// many times it's opened in between.
+const SESSION_SECRET = process.env.SESSION_SECRET || 'bregu-dev-secret-change-me';
+if (!process.env.SESSION_SECRET) {
+  console.warn('SESSION_SECRET not set — using an insecure default. Set it in .env / Render for production.');
 }
 
-function requireStaff(req, res, next) {
-  const provided = req.headers['x-staff-password'];
-  if (provided !== STAFF_PASSWORD && provided !== ADMIN_PASSWORD) {
-    return res.status(401).json({ error: 'Fjalëkalim stafi i pasaktë' });
+function base64url(buf) { return buf.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); }
+function base64urlDecode(str) { return Buffer.from(str.replace(/-/g, '+').replace(/_/g, '/'), 'base64'); }
+
+function signSessionToken(payload) {
+  const data = base64url(Buffer.from(JSON.stringify(payload)));
+  const sig = base64url(crypto.createHmac('sha256', SESSION_SECRET).update(data).digest());
+  return data + '.' + sig;
+}
+
+function verifySessionToken(token) {
+  if (!token || typeof token !== 'string' || !token.includes('.')) return null;
+  const [data, sig] = token.split('.');
+  const expectedSig = base64url(crypto.createHmac('sha256', SESSION_SECRET).update(data).digest());
+  // timing-safe compare
+  const a = Buffer.from(sig || '');
+  const b = Buffer.from(expectedSig);
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
+  try {
+    const payload = JSON.parse(base64urlDecode(data).toString());
+    if (payload.exp && Date.now() > payload.exp) return null; // expired
+    return payload;
+  } catch (e) { return null; }
+}
+
+// --- Auth settings live in the database (bcrypt-hashed), not in .env.
+// The .env values (ADMIN_PASSWORD / STAFF_PASSWORD) are only used ONCE, to
+// create the initial database record the first time the server ever runs.
+// After that, changing the password happens through the admin panel and
+// persists in MongoDB — .env / Render env vars no longer matter.
+let authSettingsCache = null;
+
+async function getAuthSettings() {
+  if (authSettingsCache) return authSettingsCache;
+  let settings = await AuthSettings.findOne();
+  if (!settings) {
+    const adminHash = await bcrypt.hash(process.env.ADMIN_PASSWORD || 'bregu-admin', 10);
+    const staffHash = await bcrypt.hash(process.env.STAFF_PASSWORD || 'bregu-staff', 10);
+    settings = await AuthSettings.create({ admin_password_hash: adminHash, staff_password_hash: staffHash });
+    console.log('Created initial auth settings from .env defaults — change these via the admin panel.');
   }
-  next();
+  authSettingsCache = settings;
+  return settings;
+}
+
+async function requireAdmin(req, res, next) {
+  try {
+    const settings = await getAuthSettings();
+    const provided = req.headers['x-admin-password'] || '';
+    const ok = await bcrypt.compare(provided, settings.admin_password_hash);
+    if (!ok) return res.status(401).json({ error: 'Fjalëkalim admin i pasaktë' });
+    next();
+  } catch (err) { res.status(500).json({ error: 'Gabim autentikimi' }); }
+}
+
+async function requireStaff(req, res, next) {
+  try {
+    const settings = await getAuthSettings();
+    const provided = req.headers['x-staff-password'] || '';
+    const okStaff = await bcrypt.compare(provided, settings.staff_password_hash);
+    const okAdmin = await bcrypt.compare(provided, settings.admin_password_hash);
+    if (!okStaff && !okAdmin) return res.status(401).json({ error: 'Fjalëkalim stafi i pasaktë' });
+    next();
+  } catch (err) { res.status(500).json({ error: 'Gabim autentikimi' }); }
 }
 
 // --- Rate limiting: guests can only send so many writes per minute per IP ---
@@ -57,16 +118,31 @@ io.on('connection', (socket) => {
   socket.on('join_staff', () => socket.join('staff'));
 });
 
+// Optional enforcement for guest actions: if the request includes a
+// session_token (issued via /api/session/issue), it must be valid and match
+// the room being acted on. Requests without a token still work — this keeps
+// old-style plain ?room= QR codes functional — but any token supplied is
+// checked for real, so a expired/tampered token is always rejected.
+function verifyGuestSession(req, res, next) {
+  const token = req.body.session_token;
+  if (!token) return next();
+  const payload = verifySessionToken(token);
+  if (!payload) return res.status(401).json({ error: 'Sesioni ka skaduar, skano përsëri kodin QR.' });
+  if (String(payload.room) !== String(req.body.room_number)) {
+    return res.status(401).json({ error: 'Token i pavlefshëm për këtë dhomë.' });
+  }
+  next();
+}
+
 // ============ CHAT ============
 
-app.post('/api/messages', async (req, res) => {
+app.post('/api/messages', verifyGuestSession, async (req, res) => {
   const { room_number, sender, text } = req.body;
   if (!room_number || !sender || !text) return res.status(400).json({ error: 'room_number, sender, text required' });
   const doc = await Message.create({ room_number, sender, text });
   const message = toDTO(doc);
 
-  io.to(roomChannel(room_number)).emit('new_message', message);
-  io.to('staff').emit('new_message', message);
+  io.to(roomChannel(room_number)).to('staff').emit('new_message', message);
   res.status(201).json(message);
 });
 
@@ -84,7 +160,7 @@ app.get('/api/messages', requireStaff, async (req, res) => {
 
 // ============ QUICK REQUESTS ============
 
-app.post('/api/quick-requests', async (req, res) => {
+app.post('/api/quick-requests', verifyGuestSession, async (req, res) => {
   const { room_number, request_type } = req.body;
   if (!room_number || !request_type) return res.status(400).json({ error: 'room_number, request_type required' });
   const doc = await QuickRequest.create({ room_number, request_type });
@@ -107,7 +183,7 @@ app.patch('/api/quick-requests/:id', requireStaff, async (req, res) => {
 
 // ============ ROOM SERVICE ORDERS ============
 
-app.post('/api/room-service', async (req, res) => {
+app.post('/api/room-service', verifyGuestSession, async (req, res) => {
   const { room_number, items } = req.body;
   if (!room_number || !Array.isArray(items) || items.length === 0) {
     return res.status(400).json({ error: 'room_number and non-empty items[] required' });
@@ -129,14 +205,13 @@ app.patch('/api/room-service/:id', requireStaff, async (req, res) => {
   if (req.body.status === 'delivered') changes.delivered_at = new Date();
   const doc = await RoomServiceOrder.findByIdAndUpdate(req.params.id, changes, { new: true });
   const order = toDTO(doc);
-  io.to(roomChannel(order.room_number)).emit('order_updated', order);
-  io.to('staff').emit('order_updated', order);
+  io.to(roomChannel(order.room_number)).to('staff').emit('order_updated', order);
   res.json(order);
 });
 
 // ============ FEEDBACK ============
 
-app.post('/api/feedback', async (req, res) => {
+app.post('/api/feedback', verifyGuestSession, async (req, res) => {
   const { room_number, rating, comment } = req.body;
   if (!room_number || !rating) return res.status(400).json({ error: 'room_number, rating required' });
   const doc = await Feedback.create({ room_number, rating, comment: comment || '' });
@@ -257,6 +332,42 @@ app.get('/api/export/orders.csv', requireStaff, async (req, res) => {
   res.send(csv);
 });
 
+// ============ AUTH — change admin/staff password (stored hashed in DB) ============
+
+app.put('/api/auth/password', requireAdmin, async (req, res) => {
+  const { role, newPassword } = req.body;
+  if (!['admin', 'staff'].includes(role) || !newPassword || newPassword.length < 4) {
+    return res.status(400).json({ error: 'role duhet të jetë admin/staff, newPassword min 4 karaktere' });
+  }
+  const settings = await getAuthSettings();
+  const hash = await bcrypt.hash(newPassword, 10);
+  if (role === 'admin') settings.admin_password_hash = hash;
+  else settings.staff_password_hash = hash;
+  await settings.save();
+  authSettingsCache = settings;
+  res.json({ ok: true, role });
+});
+
+// ============ ROOM SESSION TOKENS ============
+
+// Staff/admin generates a token when creating a QR code — expiry is fixed
+// at generation time, e.g. "valid until checkout".
+app.post('/api/session/issue', requireStaff, (req, res) => {
+  const { room, floor, hours } = req.body;
+  if (!room) return res.status(400).json({ error: 'room required' });
+  const validHours = Number(hours) > 0 ? Number(hours) : 3;
+  const exp = Date.now() + validHours * 60 * 60 * 1000;
+  const token = signSessionToken({ room: String(room), floor: floor ? String(floor) : '', exp });
+  res.json({ token, exp, room: String(room), floor: floor ? String(floor) : '' });
+});
+
+// Guest app calls this when it loads a link containing ?token=...
+app.get('/api/session/verify', (req, res) => {
+  const payload = verifySessionToken(req.query.token);
+  if (!payload) return res.status(401).json({ valid: false });
+  res.json({ valid: true, room: payload.room, floor: payload.floor, exp: payload.exp });
+});
+
 // ============ health check ============
 app.get('/api/health', (req, res) => {
   res.json({ ok: true, db: mongoose.connection.readyState === 1 ? 'connected' : 'not connected' });
@@ -275,8 +386,7 @@ async function runFollowUpCheck() {
       const text = 'Shpresojmë t\'ju ketë pëlqyer porosia! Nëse ju duhet diçka tjetër, jemi këtu. 🙂';
       const msgDoc = await Message.create({ room_number: order.room_number, sender: 'staff', text });
       const message = toDTO(msgDoc);
-      io.to(roomChannel(order.room_number)).emit('new_message', message);
-      io.to('staff').emit('new_message', message);
+      io.to(roomChannel(order.room_number)).to('staff').emit('new_message', message);
       order.followed_up = true;
       await order.save();
     }

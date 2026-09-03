@@ -2,7 +2,7 @@
 <html lang="sq">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>Bregu — Udhërrëfyesi i mysafirit</title>
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#0E3A3D">
@@ -112,7 +112,7 @@ body{
 
 .content{
   flex:1;
-  padding:20px 18px 90px;
+  padding:20px 18px calc(90px + env(safe-area-inset-bottom, 0px));
   overflow-y:auto;
 }
 .view{ display:none; }
@@ -303,9 +303,10 @@ details.faq p{ font-size:12.5px; opacity:0.65; margin:8px 0 0; line-height:1.6; 
 }
 .fb-thanks{ font-size:14px; font-weight:500; color:var(--aqua-dark); }
 .toast{
-  position:absolute; bottom:80px; left:50%; transform:translateX(-50%);
+  position:fixed; bottom:76px; left:50%; transform:translateX(-50%);
   background:var(--ink); color:var(--sand); font-size:12.5px; padding:8px 16px;
   border-radius:20px; opacity:0; pointer-events:none; transition:opacity 0.25s;
+  z-index:20; max-width:90%; text-align:center;
 }
 .toast.show{ opacity:1; }
 
@@ -327,7 +328,13 @@ details.faq p{ font-size:12.5px; opacity:0.65; margin:8px 0 0; line-height:1.6; 
 }
 .send-btn:active{ transform:scale(0.94); }
 
-.tabbar{ position:absolute; bottom:0; left:0; right:0; background:var(--white); border-top:0.5px solid var(--line); display:flex; }
+.tabbar{
+  position:fixed; bottom:0; left:50%; transform:translateX(-50%);
+  width:100%; max-width:460px;
+  background:var(--white); border-top:0.5px solid var(--line); display:flex;
+  padding-bottom:env(safe-area-inset-bottom, 0px);
+  z-index:15;
+}
 .tab-btn{
   flex:1; border:none; background:none; padding:11px 2px 9px;
   display:flex; flex-direction:column; align-items:center; gap:3px;
@@ -1088,10 +1095,61 @@ function renderStaffQR(){
   document.getElementById('staff-qr-url').textContent = fullUrl;
 }
 
-function initFromUrl(){
+const SESSION_HOURS = 3; // fallback for legacy ?room= links without a signed token
+let sessionToken = null;
+
+async function initFromUrl(){
   const params = new URLSearchParams(window.location.search);
-  if(params.get('room')) currentRoom = params.get('room');
-  if(params.get('floor')) currentFloor = params.get('floor');
+  const urlToken = params.get('token');
+  const urlRoom = params.get('room');
+  const urlFloor = params.get('floor');
+  let sessionValid = false;
+
+  if(urlToken){
+    // New-style link: a signed token issued by staff, with expiry baked in
+    // at generation time. The server is the source of truth — a forwarded
+    // link stops working once the token expires, no matter who opens it.
+    try{
+      const res = await fetch(API_BASE + '/api/session/verify?token=' + encodeURIComponent(urlToken));
+      if(res.ok){
+        const data = await res.json();
+        if(data.valid){
+          currentRoom = data.room;
+          currentFloor = data.floor || currentFloor;
+          sessionToken = urlToken;
+          try{ localStorage.setItem('bregu_session', JSON.stringify({ token: urlToken, room: currentRoom, floor: currentFloor, exp: data.exp })); }catch(e){}
+          sessionValid = true;
+        }
+      }
+    }catch(e){ console.warn('Session verification failed', e); }
+  } else if(urlRoom){
+    // Legacy link (no token) — kept working for backward compatibility,
+    // but only gets the simple client-side timer, not server-enforced expiry.
+    currentRoom = urlRoom;
+    currentFloor = urlFloor || currentFloor;
+    try{ localStorage.setItem('bregu_session', JSON.stringify({ room: currentRoom, floor: currentFloor, scannedAt: Date.now() })); }catch(e){}
+    sessionValid = true;
+  } else {
+    try{
+      const stored = JSON.parse(localStorage.getItem('bregu_session') || 'null');
+      if(stored && stored.token && stored.exp && Date.now() < stored.exp){
+        currentRoom = stored.room;
+        currentFloor = stored.floor || currentFloor;
+        sessionToken = stored.token;
+        sessionValid = true;
+      } else if(stored && stored.room && !stored.token && stored.scannedAt && (Date.now() - stored.scannedAt) < SESSION_HOURS * 60 * 60 * 1000){
+        currentRoom = stored.room;
+        currentFloor = stored.floor || currentFloor;
+        sessionValid = true;
+      }
+    }catch(e){}
+  }
+
+  if(!sessionValid){
+    showSessionLocked();
+    return;
+  }
+
   updateRoomChip();
   const rInput = document.getElementById('staff-room-input');
   const fInput = document.getElementById('staff-floor-input');
@@ -1101,6 +1159,17 @@ function initFromUrl(){
   loadChatHistory();
   loadHotelContent();
   if(socket) socket.emit('join_room', currentRoom);
+}
+
+function showSessionLocked(){
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;background:#0E3A3D;color:#F3ECDC;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:32px;z-index:9999;font-family:"Work Sans",sans-serif;';
+  overlay.innerHTML = `
+    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#CE9A42" stroke-width="1.6" style="margin-bottom:18px;"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><path d="M14 14h3v3h-3zM19 14h2v2h-2zM14 19h2v2h-2zM19 19h2v2h-2z"/></svg>
+    <h1 style="font-family:'Fraunces',serif;font-weight:500;font-size:20px;margin:0 0 10px;">Skano përsëri kodin QR</h1>
+    <p style="font-size:14px;opacity:0.75;max-width:320px;line-height:1.6;margin:0;">Kodi ka skaduar ose s'është skanuar ende. Skano kodin QR në dhomën tuaj për të vazhduar.</p>
+  `;
+  document.body.appendChild(overlay);
 }
 window.addEventListener('DOMContentLoaded', initFromUrl);
 
@@ -1145,10 +1214,16 @@ function timeNow(){
 
 function apiPost(path, body){
   if(!API_BASE) return Promise.resolve(null);
+  const fullBody = sessionToken ? { ...body, session_token: sessionToken } : body;
   return fetch(API_BASE + path, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body)
+    body: JSON.stringify(fullBody)
+  }).then(async (res) => {
+    if(res.status === 401){
+      showToast('Sesioni ka skaduar — rifresko dhe skano kodin QR sërish.');
+    }
+    return res;
   }).catch(err => { console.warn('API call failed:', err); return null; });
 }
 

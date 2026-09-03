@@ -129,18 +129,57 @@ function authHeaders(){
   return { 'Content-Type': 'application/json', 'x-staff-password': staffPassword };
 }
 
-// Simple beep via Web Audio API — no external sound file needed.
+// Repeating chime via Web Audio API — runs about 5 seconds so it's hard to miss,
+// even with the tab in the background. No external sound file needed.
 function playBeep(){
   if(!soundOn) return;
   try{
     const ctx = new (window.AudioContext || window.webkitAudioContext)();
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.frequency.value = 720;
-    gain.gain.value = 0.15;
-    osc.connect(gain); gain.connect(ctx.destination);
-    osc.start();
-    setTimeout(()=>{ osc.stop(); ctx.close(); }, 180);
+    const now = ctx.currentTime;
+
+    function tone(freq, startOffset, duration, peakGain){
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = freq;
+      osc.connect(gain); gain.connect(ctx.destination);
+      const t0 = now + startOffset;
+      const t1 = t0 + duration;
+      gain.gain.setValueAtTime(0, t0);
+      gain.gain.linearRampToValueAtTime(peakGain, t0 + 0.02);
+      gain.gain.setValueAtTime(peakGain, t1 - 0.05);
+      gain.gain.linearRampToValueAtTime(0, t1);
+      osc.start(t0);
+      osc.stop(t1 + 0.02);
+    }
+
+    const pulses = 7; // ~5 seconds total at 0.75s spacing
+    for(let i = 0; i < pulses; i++){
+      const freq = i % 2 === 0 ? 880 : 1175;
+      tone(freq, i * 0.75, 0.5, 0.5);
+    }
+
+    setTimeout(()=>ctx.close(), 5300);
+  }catch(e){}
+}
+
+// Browser notification — shows a system-level popup even while this tab is
+// open and focused, not just when the page is in the background.
+let notificationsReady = false;
+
+function ensureNotificationPermission(){
+  if(!('Notification' in window)) return;
+  if(Notification.permission === 'default'){
+    Notification.requestPermission().then(p => { notificationsReady = (p === 'granted'); });
+  } else {
+    notificationsReady = (Notification.permission === 'granted');
+  }
+}
+
+function showBrowserNotification(title, body){
+  if(!('Notification' in window) || Notification.permission !== 'granted') return;
+  try{
+    new Notification(title, { body, icon: 'icon-192.png', tag: 'bregu-' + Date.now() });
   }catch(e){}
 }
 
@@ -152,6 +191,7 @@ function toggleSound(){
 async function connect(){
   apiBase = document.getElementById('backend-url').value.trim().replace(/\/$/, '');
   staffPassword = document.getElementById('staff-password').value;
+  ensureNotificationPermission();
 
   try{
     const testRes = await fetch(apiBase + '/api/quick-requests', { headers: authHeaders() });
@@ -178,9 +218,15 @@ async function connect(){
     document.getElementById('conn-status').textContent = '● shkëputur';
     document.getElementById('conn-status').classList.remove('on');
   });
-  socket.on('new_request', () => { loadRequests(); loadStats(); playBeep(); });
+  socket.on('new_request', (item) => {
+    loadRequests(); loadStats(); playBeep();
+    showBrowserNotification('Kërkesë e re — Dhoma ' + item.room_number, item.request_type);
+  });
   socket.on('request_updated', () => loadRequests());
-  socket.on('new_order', () => { loadOrders(); loadStats(); playBeep(); });
+  socket.on('new_order', (order) => {
+    loadOrders(); loadStats(); playBeep();
+    showBrowserNotification('Porosi e re — Dhoma ' + order.room_number, order.items.map(i=>i.name).join(', '));
+  });
   socket.on('order_updated', () => loadOrders());
   socket.on('new_message', (msg) => {
     knownRooms.add(msg.room_number);
@@ -189,7 +235,10 @@ async function connect(){
       allMessages.push(msg);
       renderThread();
     }
-    if(msg.sender === 'guest') playBeep();
+    if(msg.sender === 'guest'){
+      playBeep();
+      showBrowserNotification('Mesazh i ri — Dhoma ' + msg.room_number, msg.text);
+    }
   });
 }
 
