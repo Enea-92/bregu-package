@@ -291,9 +291,17 @@ async function unlock(){
   apiBase = document.getElementById('backend-url').value.trim().replace(/\/$/, '');
   adminPassword = document.getElementById('admin-password').value;
   try {
-    const res = await fetch(apiBase + '/api/content');
-    if(!res.ok) throw new Error('no content');
-    content = await res.json();
+    // Use a genuinely admin-protected endpoint to verify the password —
+    // /api/content is public, so it never actually checked the password before.
+    const authRes = await fetch(apiBase + '/api/content', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'x-admin-password': adminPassword },
+      body: JSON.stringify({})
+    });
+    if(authRes.status === 401) throw new Error('wrong password');
+    if(!authRes.ok) throw new Error('bad response');
+    content = await authRes.json();
+
     const recRes = await fetch(apiBase + '/api/recommendations');
     recommendations = await recRes.json();
 
@@ -303,7 +311,11 @@ async function unlock(){
     document.getElementById('main-view').style.display = 'block';
     renderAll();
   } catch(e) {
-    showToast('S\'u lidh dot me backend-in. Kontrollo URL-në.', true);
+    if(e.message === 'wrong password'){
+      showToast('Fjalëkalim i gabuar.', true);
+    } else {
+      showToast('S\'u lidh dot me backend-in. Kontrollo URL-në.', true);
+    }
   }
 }
 
