@@ -50,6 +50,20 @@ select{ border:0.5px solid var(--line); border-radius:7px; padding:8px 10px; fon
 .locked{ text-align:center; padding:60px 20px; }
 .locked input{ font-family:'IBM Plex Mono',monospace; padding:10px 14px; border-radius:8px; border:0.5px solid var(--line); font-size:14px; width:220px; }
 .locked button{ border:none; background:var(--sea); color:var(--sand); border-radius:8px; padding:10px 18px; font-size:13px; font-weight:500; cursor:pointer; margin-left:8px; }
+.qr-card{ text-align:center; }
+.qr-card img{ width:100%; max-width:150px; border-radius:8px; border:0.5px solid var(--line); }
+.qr-card p{ font-family:'IBM Plex Mono',monospace; font-size:12px; margin:6px 0 2px; font-weight:500; }
+.qr-card a{ font-size:11px; color:var(--aqua-dark); text-decoration:none; }
+
+@media print{
+  body *{ visibility:hidden; }
+  .printable-card, .printable-card *{ visibility:visible; }
+  .printable-card{ position:absolute; top:0; left:0; width:100%; border:none; box-shadow:none; padding:0; }
+  .printable-card > h2, .printable-card > p.hint, .printable-card .field-row,
+  .printable-card .add-btn, .printable-card .save-btn, #qr-queue { display:none !important; }
+  #qr-grid{ display:grid !important; }
+  body{ background:#fff; }
+}
 </style>
 </head>
 <body>
@@ -72,18 +86,26 @@ select{ border:0.5px solid var(--line); border-radius:7px; padding:8px 10px; fon
 
 <div class="wrap" id="main-view" style="display:none;">
 
-  <div class="card">
-    <h2>Gjenero kod QR për dhomën</h2>
-    <p class="hint">Çdo dhomë ka nevojë vetëm për 1 kod QR — hap app-in me numrin e dhomës të para-plotësuar. Printo dhe vendos në dhomë.</p>
+  <div class="card printable-card" id="qr-card">
+    <h2>Gjenero kode QR për dhoma</h2>
+    <p class="hint">Çdo dhomë ka nevojë vetëm për 1 kod QR — hap app-in me numrin e dhomës të para-plotësuar. Mund të krijosh një dhomë të vetme ose një grup me interval (p.sh. 101–110).</p>
     <div class="field-row"><label>URL e app-it</label><input id="qr-app-url" placeholder="https://bregu-package-staff.onrender.com/hotel-bregu-guest-app.html" value="https://bregu-package-staff.onrender.com/hotel-bregu-guest-app.html"></div>
-    <div class="field-row"><label>Numri i dhomës</label><input id="qr-room" placeholder="214" value="214"></div>
-    <div class="field-row"><label>Kati</label><input id="qr-floor" placeholder="2" value="2"></div>
-    <button class="save-btn" onclick="generateQr()">Gjenero kodin QR</button>
-    <div id="qr-result" style="margin-top:14px; text-align:center; display:none;">
-      <img id="qr-img" width="180" height="180" style="border-radius:8px; border:0.5px solid var(--line);" alt="QR kod">
-      <p id="qr-url-text" style="font-family:'IBM Plex Mono',monospace; font-size:10.5px; opacity:0.55; word-break:break-all; margin-top:10px;"></p>
-      <a id="qr-download" download="dhoma-qr.png" style="display:inline-block; margin-top:8px; font-size:12.5px; color:var(--aqua-dark); text-decoration:none; font-weight:500;">⬇ Shkarko PNG</a>
-    </div>
+
+    <p class="hint" style="margin:14px 0 8px; font-weight:500; opacity:0.8;">Shto dhoma në listë</p>
+    <div class="field-row"><label>Dhoma nga</label><input id="qr-room-from" placeholder="101" style="width:100px;"></div>
+    <div class="field-row"><label>Dhoma deri (opsionale)</label><input id="qr-room-to" placeholder="110 (lëre bosh për 1 dhomë)" style="width:100px;"></div>
+    <div class="field-row"><label>Kati</label><input id="qr-floor" placeholder="1" style="width:100px;"></div>
+    <div class="field-row"><label>Skadon pas (orë)</label><input id="qr-hours" type="number" placeholder="72" value="72" style="width:100px;"></div>
+    <p class="hint" style="margin:2px 0 10px;">Koha fillon nga momenti i gjenerimit, jo nga hapja e linkut — p.sh. 72 orë ≈ 3 net qëndrimi. Vendos aq sa zgjat qëndrimi i mysafirit.</p>
+    <button class="add-btn" onclick="addQrGroup()">+ Shto në listë</button>
+
+    <div id="qr-queue" style="margin:12px 0; display:flex; flex-wrap:wrap; gap:6px;"></div>
+
+    <button class="save-btn" onclick="generateQrBatch()">Gjenero të gjitha kodet QR</button>
+    <button class="save-btn" style="background:var(--gold); color:var(--ink); margin-left:8px; display:none;" id="qr-download-zip" onclick="downloadQrZip()">⬇ Shkarko të gjitha (ZIP)</button>
+    <button class="save-btn" style="background:var(--sand-dim); color:var(--ink); margin-left:8px; display:none;" id="qr-print-btn" onclick="window.print()">🖨 Printo faqen</button>
+
+    <div id="qr-grid" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(150px, 1fr)); gap:14px; margin-top:16px;"></div>
   </div>
 
   <div class="card">
@@ -144,6 +166,7 @@ select{ border:0.5px solid var(--line); border-radius:7px; padding:8px 10px; fon
 
 <div class="toast" id="toast"></div>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script>
 let apiBase = 'https://bregu-package.onrender.com';
 let adminPassword = '';
@@ -158,27 +181,127 @@ function showToast(text, isError){
   setTimeout(()=>t.classList.remove('show'), 2500);
 }
 
-function generateQr(){
-  const appUrl = document.getElementById('qr-app-url').value.trim().replace(/\/$/, '');
-  const room = document.getElementById('qr-room').value.trim() || '214';
-  const floor = document.getElementById('qr-floor').value.trim() || '1';
-  const fullUrl = appUrl + '?room=' + encodeURIComponent(room) + '&floor=' + encodeURIComponent(floor);
-  const qrSrc = 'https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=' + encodeURIComponent(fullUrl);
+let qrQueue = []; // { fromRoom, toRoom, floor }
+let qrRooms = [];  // expanded individual { room, floor } after generation
 
-  document.getElementById('qr-img').src = qrSrc;
-  document.getElementById('qr-url-text').textContent = fullUrl;
-  document.getElementById('qr-download').href = qrSrc;
-  document.getElementById('qr-download').download = 'dhoma-' + room + '-qr.png';
-  document.getElementById('qr-result').style.display = 'block';
+function addQrGroup(){
+  const from = document.getElementById('qr-room-from').value.trim();
+  const to = document.getElementById('qr-room-to').value.trim();
+  const floor = document.getElementById('qr-floor').value.trim() || '1';
+  if(!from){ showToast('Vendos të paktën numrin e dhomës "nga".', true); return; }
+  qrQueue.push({ from, to: to || from, floor });
+  document.getElementById('qr-room-from').value = '';
+  document.getElementById('qr-room-to').value = '';
+  renderQrQueue();
+}
+
+function removeQrGroup(idx){
+  qrQueue.splice(idx, 1);
+  renderQrQueue();
+}
+
+function renderQrQueue(){
+  const box = document.getElementById('qr-queue');
+  box.innerHTML = qrQueue.map((g, idx) => {
+    const label = g.from === g.to ? `Dhoma ${g.from}` : `Dhoma ${g.from}–${g.to}`;
+    return `<span class="lang-tab on" style="display:inline-flex; align-items:center; gap:6px;">${label} · Kati ${g.floor} <button onclick="removeQrGroup(${idx})" style="background:none;border:none;color:inherit;cursor:pointer;font-weight:700;">×</button></span>`;
+  }).join('');
+}
+
+function expandQrQueue(){
+  const rooms = [];
+  qrQueue.forEach(g => {
+    const fromNum = parseInt(g.from, 10);
+    const toNum = parseInt(g.to, 10);
+    if(!isNaN(fromNum) && !isNaN(toNum) && toNum >= fromNum && (toNum - fromNum) < 500){
+      for(let n = fromNum; n <= toNum; n++) rooms.push({ room: String(n), floor: g.floor });
+    } else {
+      rooms.push({ room: g.from, floor: g.floor });
+    }
+  });
+  return rooms;
+}
+
+async function generateQrBatch(){
+  if(qrQueue.length === 0){ showToast('Shto të paktën një dhomë ose grup dhomash në listë.', true); return; }
+  const appUrl = document.getElementById('qr-app-url').value.trim().replace(/\/$/, '');
+  const hours = parseFloat(document.getElementById('qr-hours').value) || 72;
+  qrRooms = expandQrQueue();
+
+  showToast('Duke gjeneruar token-at e sigurt...');
+  const grid = document.getElementById('qr-grid');
+
+  try{
+    const withTokens = await Promise.all(qrRooms.map(async (r) => {
+      const res = await fetch(apiBase + '/api/session/issue', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-staff-password': adminPassword },
+        body: JSON.stringify({ room: r.room, floor: r.floor, hours })
+      });
+      if(!res.ok) throw new Error('session issue failed');
+      const data = await res.json();
+      return { ...r, token: data.token, exp: data.exp };
+    }));
+    qrRooms = withTokens;
+  }catch(e){
+    showToast('Gabim duke gjeneruar token-at. Kontrollo lidhjen/fjalëkalimin.', true);
+    return;
+  }
+
+  grid.innerHTML = qrRooms.map(r => {
+    const fullUrl = appUrl + '?token=' + encodeURIComponent(r.token);
+    const qrSrc = 'https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=' + encodeURIComponent(fullUrl);
+    const expDate = new Date(r.exp);
+    return `<div class="qr-card">
+      <img src="${qrSrc}" alt="QR dhoma ${r.room}">
+      <p>Dhoma ${r.room}</p>
+      <p style="font-size:10px; opacity:0.5; margin-top:-6px;">Skadon: ${expDate.toLocaleString('sq-AL')}</p>
+      <a href="${qrSrc}" download="dhoma-${r.room}-qr.png">⬇ PNG</a>
+    </div>`;
+  }).join('');
+
+  document.getElementById('qr-download-zip').style.display = qrRooms.length > 1 ? 'inline-block' : 'none';
+  document.getElementById('qr-print-btn').style.display = 'inline-block';
+  showToast(`U gjeneruan ${qrRooms.length} kode QR, të vlefshme ${hours} orë.`);
+}
+
+async function downloadQrZip(){
+  if(qrRooms.length === 0) return;
+  showToast('Duke përgatitur ZIP-in...');
+  try{
+    const appUrl = document.getElementById('qr-app-url').value.trim().replace(/\/$/, '');
+    const zip = new JSZip();
+    await Promise.all(qrRooms.map(async r => {
+      const fullUrl = appUrl + '?token=' + encodeURIComponent(r.token);
+      const qrSrc = 'https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=' + encodeURIComponent(fullUrl);
+      const res = await fetch(qrSrc);
+      const blob = await res.blob();
+      zip.file('dhoma-' + r.room + '-qr.png', blob);
+    }));
+    const zipBlob = await zip.generateAsync({ type: 'blob' });
+    const url = URL.createObjectURL(zipBlob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'kodet-qr-dhomat.zip';
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+  }catch(e){ showToast('ZIP-i dështoi — provo shkarkimin individual (PNG) për secilën dhomë.', true); }
 }
 
 async function unlock(){
   apiBase = document.getElementById('backend-url').value.trim().replace(/\/$/, '');
   adminPassword = document.getElementById('admin-password').value;
   try {
-    const res = await fetch(apiBase + '/api/content');
-    if(!res.ok) throw new Error('no content');
-    content = await res.json();
+    // Use a genuinely admin-protected endpoint to verify the password —
+    // /api/content is public, so it never actually checked the password before.
+    const authRes = await fetch(apiBase + '/api/content', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'x-admin-password': adminPassword },
+      body: JSON.stringify({})
+    });
+    if(authRes.status === 401) throw new Error('wrong password');
+    if(!authRes.ok) throw new Error('bad response');
+    content = await authRes.json();
+
     const recRes = await fetch(apiBase + '/api/recommendations');
     recommendations = await recRes.json();
 
@@ -188,7 +311,11 @@ async function unlock(){
     document.getElementById('main-view').style.display = 'block';
     renderAll();
   } catch(e) {
-    showToast('S\'u lidh dot me backend-in. Kontrollo URL-në.', true);
+    if(e.message === 'wrong password'){
+      showToast('Fjalëkalim i gabuar.', true);
+    } else {
+      showToast('S\'u lidh dot me backend-in. Kontrollo URL-në.', true);
+    }
   }
 }
 

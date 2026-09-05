@@ -6,6 +6,7 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const http = require('http');
+const crypto = require('crypto');
 const mongoose = require('mongoose');
 const { Server } = require('socket.io');
 const rateLimit = require('express-rate-limit');
@@ -17,6 +18,41 @@ app.use(cors());
 app.use(express.json());
 
 const FOLLOWUP_HOURS = Number(process.env.FOLLOWUP_HOURS || 2); // hours after delivery to ask for feedback
+
+// --- Signed room-session tokens ---
+// A QR code embeds one of these tokens instead of a plain room number.
+// The expiry is baked into the token at the moment staff GENERATES it —
+// not reset every time someone opens the link — so a forwarded link
+// genuinely stops working once it expires, no matter who has it or how
+// many times it's opened in between.
+const SESSION_SECRET = process.env.SESSION_SECRET || 'bregu-dev-secret-change-me';
+if (!process.env.SESSION_SECRET) {
+  console.warn('SESSION_SECRET not set — using an insecure default. Set it in .env / Render for production.');
+}
+
+function base64url(buf) { return buf.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); }
+function base64urlDecode(str) { return Buffer.from(str.replace(/-/g, '+').replace(/_/g, '/'), 'base64'); }
+
+function signSessionToken(payload) {
+  const data = base64url(Buffer.from(JSON.stringify(payload)));
+  const sig = base64url(crypto.createHmac('sha256', SESSION_SECRET).update(data).digest());
+  return data + '.' + sig;
+}
+
+function verifySessionToken(token) {
+  if (!token || typeof token !== 'string' || !token.includes('.')) return null;
+  const [data, sig] = token.split('.');
+  const expectedSig = base64url(crypto.createHmac('sha256', SESSION_SECRET).update(data).digest());
+  // timing-safe compare
+  const a = Buffer.from(sig || '');
+  const b = Buffer.from(expectedSig);
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
+  try {
+    const payload = JSON.parse(base64urlDecode(data).toString());
+    if (payload.exp && Date.now() > payload.exp) return null; // expired
+    return payload;
+  } catch (e) { return null; }
+}
 
 // --- Auth settings live in the database (bcrypt-hashed), not in .env.
 // The .env values (ADMIN_PASSWORD / STAFF_PASSWORD) are only used ONCE, to
@@ -82,9 +118,25 @@ io.on('connection', (socket) => {
   socket.on('join_staff', () => socket.join('staff'));
 });
 
+// Optional enforcement for guest actions: if the request includes a
+// session_token (issued via /api/session/issue), it must be valid and match
+// the room being acted on. Requests without a token still work — this keeps
+// old-style plain ?room= QR codes functional — but any token supplied is
+// checked for real, so a expired/tampered token is always rejected.
+function verifyGuestSession(req, res, next) {
+  const token = req.body.session_token;
+  if (!token) return next();
+  const payload = verifySessionToken(token);
+  if (!payload) return res.status(401).json({ error: 'Sesioni ka skaduar, skano përsëri kodin QR.' });
+  if (String(payload.room) !== String(req.body.room_number)) {
+    return res.status(401).json({ error: 'Token i pavlefshëm për këtë dhomë.' });
+  }
+  next();
+}
+
 // ============ CHAT ============
 
-app.post('/api/messages', async (req, res) => {
+app.post('/api/messages', verifyGuestSession, async (req, res) => {
   const { room_number, sender, text } = req.body;
   if (!room_number || !sender || !text) return res.status(400).json({ error: 'room_number, sender, text required' });
   const doc = await Message.create({ room_number, sender, text });
@@ -108,7 +160,7 @@ app.get('/api/messages', requireStaff, async (req, res) => {
 
 // ============ QUICK REQUESTS ============
 
-app.post('/api/quick-requests', async (req, res) => {
+app.post('/api/quick-requests', verifyGuestSession, async (req, res) => {
   const { room_number, request_type } = req.body;
   if (!room_number || !request_type) return res.status(400).json({ error: 'room_number, request_type required' });
   const doc = await QuickRequest.create({ room_number, request_type });
@@ -131,7 +183,7 @@ app.patch('/api/quick-requests/:id', requireStaff, async (req, res) => {
 
 // ============ ROOM SERVICE ORDERS ============
 
-app.post('/api/room-service', async (req, res) => {
+app.post('/api/room-service', verifyGuestSession, async (req, res) => {
   const { room_number, items } = req.body;
   if (!room_number || !Array.isArray(items) || items.length === 0) {
     return res.status(400).json({ error: 'room_number and non-empty items[] required' });
@@ -159,7 +211,7 @@ app.patch('/api/room-service/:id', requireStaff, async (req, res) => {
 
 // ============ FEEDBACK ============
 
-app.post('/api/feedback', async (req, res) => {
+app.post('/api/feedback', verifyGuestSession, async (req, res) => {
   const { room_number, rating, comment } = req.body;
   if (!room_number || !rating) return res.status(400).json({ error: 'room_number, rating required' });
   const doc = await Feedback.create({ room_number, rating, comment: comment || '' });
@@ -296,6 +348,26 @@ app.put('/api/auth/password', requireAdmin, async (req, res) => {
   res.json({ ok: true, role });
 });
 
+// ============ ROOM SESSION TOKENS ============
+
+// Staff/admin generates a token when creating a QR code — expiry is fixed
+// at generation time, e.g. "valid until checkout".
+app.post('/api/session/issue', requireStaff, (req, res) => {
+  const { room, floor, hours } = req.body;
+  if (!room) return res.status(400).json({ error: 'room required' });
+  const validHours = Number(hours) > 0 ? Number(hours) : 3;
+  const exp = Date.now() + validHours * 60 * 60 * 1000;
+  const token = signSessionToken({ room: String(room), floor: floor ? String(floor) : '', exp });
+  res.json({ token, exp, room: String(room), floor: floor ? String(floor) : '' });
+});
+
+// Guest app calls this when it loads a link containing ?token=...
+app.get('/api/session/verify', (req, res) => {
+  const payload = verifySessionToken(req.query.token);
+  if (!payload) return res.status(401).json({ valid: false });
+  res.json({ valid: true, room: payload.room, floor: payload.floor, exp: payload.exp });
+});
+
 // ============ health check ============
 app.get('/api/health', (req, res) => {
   res.json({ ok: true, db: mongoose.connection.readyState === 1 ? 'connected' : 'not connected' });
@@ -324,6 +396,51 @@ async function runFollowUpCheck() {
 }
 setInterval(runFollowUpCheck, 5 * 60 * 1000);
 
+// ============ daily message wipe (11:00, Europe/Tirane time — checkout) ============
+// Runs once a day: deletes ALL chat messages so every day starts clean.
+// Uses the Albania timezone regardless of what timezone the server itself
+// runs in (Render servers typically run in UTC).
+let lastWipeDate = null; // 'YYYY-MM-DD' in Europe/Tirane, guards against double-firing
+
+async function checkDailyWipe() {
+  try {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Europe/Tirane', year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', hour12: false
+    }).formatToParts(new Date());
+    const map = {};
+    parts.forEach(p => { map[p.type] = p.value; });
+    const dateStr = `${map.year}-${map.month}-${map.day}`;
+    const hour = parseInt(map.hour, 10);
+    const minute = parseInt(map.minute, 10);
+
+    if (hour === 11 && minute === 0 && lastWipeDate !== dateStr) {
+      const result = await Message.deleteMany({});
+      lastWipeDate = dateStr;
+      io.emit('chat_cleared');
+      console.log(`Daily message wipe at 11:00 (Europe/Tirane): deleted ${result.deletedCount} messages.`);
+    }
+  } catch (err) {
+    console.error('Daily wipe check failed:', err.message);
+  }
+}
+setInterval(checkDailyWipe, 60 * 1000); // check every minute
+
+// One-time cleanup: drop the old 45-minute TTL index on messages if it still
+// exists from an earlier version — it's been replaced by the daily wipe above.
+async function dropLegacyTtlIndex() {
+  try {
+    const indexes = await Message.collection.indexes();
+    const ttlIndex = indexes.find((idx) => idx.expireAfterSeconds !== undefined);
+    if (ttlIndex) {
+      await Message.collection.dropIndex(ttlIndex.name);
+      console.log('Dropped legacy TTL index on messages:', ttlIndex.name);
+    }
+  } catch (err) {
+    console.warn('Could not check/drop legacy TTL index:', err.message);
+  }
+}
+
 const PORT = process.env.PORT || 3001;
 const MONGODB_URI = process.env.MONGODB_URI;
 
@@ -333,10 +450,12 @@ if (!MONGODB_URI) {
 }
 
 mongoose.connect(MONGODB_URI)
-  .then(() => {
+  .then(async () => {
     console.log('Connected to MongoDB');
+    await dropLegacyTtlIndex();
     server.listen(PORT, () => console.log('Hotel Bregu backend running on port ' + PORT));
     runFollowUpCheck();
+    checkDailyWipe();
   })
   .catch((err) => {
     console.error('MongoDB connection failed:', err.message);

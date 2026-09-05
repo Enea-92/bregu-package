@@ -129,7 +129,8 @@ function authHeaders(){
   return { 'Content-Type': 'application/json', 'x-staff-password': staffPassword };
 }
 
-// Two-tone chime via Web Audio API — louder and longer than a plain beep, no external sound file needed.
+// Repeating chime via Web Audio API — runs about 5 seconds so it's hard to miss,
+// even with the tab in the background. No external sound file needed.
 function playBeep(){
   if(!soundOn) return;
   try{
@@ -144,7 +145,6 @@ function playBeep(){
       osc.connect(gain); gain.connect(ctx.destination);
       const t0 = now + startOffset;
       const t1 = t0 + duration;
-      // quick fade in/out to avoid clicks, sustained at peak volume in between
       gain.gain.setValueAtTime(0, t0);
       gain.gain.linearRampToValueAtTime(peakGain, t0 + 0.02);
       gain.gain.setValueAtTime(peakGain, t1 - 0.05);
@@ -153,10 +153,33 @@ function playBeep(){
       osc.stop(t1 + 0.02);
     }
 
-    tone(880, 0, 0.35, 0.5);
-    tone(1175, 0.32, 0.45, 0.5);
+    const pulses = 7; // ~5 seconds total at 0.75s spacing
+    for(let i = 0; i < pulses; i++){
+      const freq = i % 2 === 0 ? 880 : 1175;
+      tone(freq, i * 0.75, 0.5, 0.5);
+    }
 
-    setTimeout(()=>ctx.close(), 900);
+    setTimeout(()=>ctx.close(), 5300);
+  }catch(e){}
+}
+
+// Browser notification — shows a system-level popup even while this tab is
+// open and focused, not just when the page is in the background.
+let notificationsReady = false;
+
+function ensureNotificationPermission(){
+  if(!('Notification' in window)) return;
+  if(Notification.permission === 'default'){
+    Notification.requestPermission().then(p => { notificationsReady = (p === 'granted'); });
+  } else {
+    notificationsReady = (Notification.permission === 'granted');
+  }
+}
+
+function showBrowserNotification(title, body){
+  if(!('Notification' in window) || Notification.permission !== 'granted') return;
+  try{
+    new Notification(title, { body, icon: 'icon-192.png', tag: 'bregu-' + Date.now() });
   }catch(e){}
 }
 
@@ -168,6 +191,7 @@ function toggleSound(){
 async function connect(){
   apiBase = document.getElementById('backend-url').value.trim().replace(/\/$/, '');
   staffPassword = document.getElementById('staff-password').value;
+  ensureNotificationPermission();
 
   try{
     const testRes = await fetch(apiBase + '/api/quick-requests', { headers: authHeaders() });
@@ -194,10 +218,23 @@ async function connect(){
     document.getElementById('conn-status').textContent = '● shkëputur';
     document.getElementById('conn-status').classList.remove('on');
   });
-  socket.on('new_request', () => { loadRequests(); loadStats(); playBeep(); });
+  socket.on('new_request', (item) => {
+    loadRequests(); loadStats(); playBeep();
+    showBrowserNotification('Kërkesë e re — Dhoma ' + item.room_number, item.request_type);
+  });
   socket.on('request_updated', () => loadRequests());
-  socket.on('new_order', () => { loadOrders(); loadStats(); playBeep(); });
+  socket.on('new_order', (order) => {
+    loadOrders(); loadStats(); playBeep();
+    showBrowserNotification('Porosi e re — Dhoma ' + order.room_number, order.items.map(i=>i.name).join(', '));
+  });
   socket.on('order_updated', () => loadOrders());
+  socket.on('chat_cleared', () => {
+    allMessages = [];
+    knownRooms = new Set();
+    activeRoom = null;
+    renderRoomList();
+    document.getElementById('chat-thread').innerHTML = '<p class="empty">Zgjidhni një dhomë për të parë bisedën.</p>';
+  });
   socket.on('new_message', (msg) => {
     knownRooms.add(msg.room_number);
     renderRoomList();
@@ -205,7 +242,10 @@ async function connect(){
       allMessages.push(msg);
       renderThread();
     }
-    if(msg.sender === 'guest') playBeep();
+    if(msg.sender === 'guest'){
+      playBeep();
+      showBrowserNotification('Mesazh i ri — Dhoma ' + msg.room_number, msg.text);
+    }
   });
 }
 
