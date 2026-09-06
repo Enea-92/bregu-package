@@ -325,13 +325,22 @@ details.faq p{ font-size:12.5px; opacity:0.65; margin:8px 0 0; line-height:1.6; 
 }
 .toast.show{ opacity:1; }
 
-.chat-wrap{ display:flex; flex-direction:column; height:calc(100vh - 210px); }
-.chat-log{ flex:1; overflow-y:auto; padding-bottom:10px; }
-.msg{ max-width:78%; margin-bottom:10px; font-size:13.5px; line-height:1.5; }
+.chat-wrap{ display:block; }
+.chat-log{ padding-bottom:8px; }
+.msg{ max-width:78%; margin-bottom:10px; font-size:13.5px; line-height:1.5; scroll-margin-bottom:130px; }
 .msg-in{ background:var(--white); border:0.5px solid var(--line); padding:10px 13px; border-radius:12px 12px 12px 3px; }
 .msg-out{ background:var(--sea); color:var(--sand); padding:10px 13px; border-radius:12px 12px 3px 12px; margin-left:auto; }
 .msg-time{ font-size:10px; opacity:0.5; margin-top:4px; }
-.chat-input-row{ display:flex; gap:8px; padding-top:10px; border-top:0.5px solid var(--line); }
+.chat-input-row{
+  position:fixed; bottom:calc(56px + env(safe-area-inset-bottom, 0px));
+  left:50%; transform:translateX(-50%);
+  width:100%; max-width:460px; box-sizing:border-box;
+  display:flex; gap:8px;
+  padding:10px 18px;
+  background:rgba(243,236,220,0.95); backdrop-filter:blur(8px);
+  border-top:0.5px solid var(--line);
+  z-index:14;
+}
 .chat-input-row input{
   flex:1; border:0.5px solid var(--line); border-radius:20px; padding:10px 16px;
   font-size:13.5px; font-family:inherit; outline:none; background:var(--white);
@@ -633,7 +642,7 @@ details.faq p{ font-size:12.5px; opacity:0.65; margin:8px 0 0; line-height:1.6; 
       </div>
 
       <h3 class="group-heading" data-i18n="feedback.heading" style="margin-top:22px;">Vlerësoni qëndrimin</h3>
-      <div id="feedback-box">
+      <div id="feedback-box" style="padding-bottom:80px;">
         <div class="stars" id="fb-stars">
           <button class="star-btn" data-v="1" onclick="rateStay(1)">★</button>
           <button class="star-btn" data-v="2" onclick="rateStay(2)">★</button>
@@ -1232,6 +1241,11 @@ function showView(name){
   document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
   document.getElementById('view-'+name).classList.add('active');
   document.querySelectorAll('.tab-btn').forEach(b=>b.classList.toggle('on', b.dataset.view===name));
+  if(name === 'chat'){
+    const log = document.getElementById('chat-log');
+    const lastMsg = log && log.lastElementChild;
+    if(lastMsg) setTimeout(()=>lastMsg.scrollIntoView({ behavior:'auto', block:'end' }), 30);
+  }
 }
 
 function showToast(text){
@@ -1276,22 +1290,24 @@ function apiPost(path, body){
   }).catch(err => { console.warn('API call failed:', err); return null; });
 }
 
-function pushInMsg(text){
+function pushInMsg(text, scrollBehavior){
   const log = document.getElementById('chat-log');
   const inMsg = document.createElement('div');
   inMsg.className = 'msg msg-in';
   inMsg.innerHTML = text + '<div class="msg-time">'+timeNow()+'</div>';
   log.appendChild(inMsg);
-  log.scrollTop = log.scrollHeight;
+  if(scrollBehavior !== false) inMsg.scrollIntoView({ behavior: scrollBehavior || 'smooth', block:'end' });
+  return inMsg;
 }
 
-function pushOutMsg(text){
+function pushOutMsg(text, scrollBehavior){
   const log = document.getElementById('chat-log');
   const out = document.createElement('div');
   out.className = 'msg msg-out';
   out.innerHTML = text + '<div class="msg-time">'+timeNow()+'</div>';
   log.appendChild(out);
-  log.scrollTop = log.scrollHeight;
+  if(scrollBehavior !== false) out.scrollIntoView({ behavior: scrollBehavior || 'smooth', block:'end' });
+  return out;
 }
 
 async function loadChatHistory(){
@@ -1299,7 +1315,9 @@ async function loadChatHistory(){
   try{
     const res = await fetch(API_BASE + '/api/messages/' + encodeURIComponent(currentRoom));
     const msgs = await res.json();
-    msgs.forEach(m => { m.sender === 'guest' ? pushOutMsg(m.text) : pushInMsg(m.text); });
+    let lastEl = null;
+    msgs.forEach(m => { lastEl = m.sender === 'guest' ? pushOutMsg(m.text, false) : pushInMsg(m.text, false); });
+    if(lastEl) lastEl.scrollIntoView({ behavior:'auto', block:'end' });
   }catch(e){ console.warn('Could not load chat history', e); }
 }
 
