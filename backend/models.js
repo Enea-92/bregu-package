@@ -11,10 +11,8 @@ const messageSchema = new mongoose.Schema(
   },
   { timestamps: { createdAt: 'created_at', updatedAt: false } }
 );
-// Auto-delete messages 45 minutes after they're created (MongoDB TTL index).
-// MongoDB's background cleanup runs about once a minute, so deletion happens
-// within ~45-46 minutes, not to-the-second.
-messageSchema.index({ created_at: 1 }, { expireAfterSeconds: 45 * 60 });
+// Note: no longer using a 45-minute TTL index here — messages are now
+// wiped once a day at checkout time instead (see runDailyWipe in server.js).
 
 const quickRequestSchema = new mongoose.Schema(
   {

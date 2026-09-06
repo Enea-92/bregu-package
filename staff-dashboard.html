@@ -228,6 +228,13 @@ async function connect(){
     showBrowserNotification('Porosi e re — Dhoma ' + order.room_number, order.items.map(i=>i.name).join(', '));
   });
   socket.on('order_updated', () => loadOrders());
+  socket.on('chat_cleared', () => {
+    allMessages = [];
+    knownRooms = new Set();
+    activeRoom = null;
+    renderRoomList();
+    document.getElementById('chat-thread').innerHTML = '<p class="empty">Zgjidhni një dhomë për të parë bisedën.</p>';
+  });
   socket.on('new_message', (msg) => {
     knownRooms.add(msg.room_number);
     renderRoomList();

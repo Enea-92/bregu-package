@@ -396,6 +396,51 @@ async function runFollowUpCheck() {
 }
 setInterval(runFollowUpCheck, 5 * 60 * 1000);
 
+// ============ daily message wipe (11:00, Europe/Tirane time — checkout) ============
+// Runs once a day: deletes ALL chat messages so every day starts clean.
+// Uses the Albania timezone regardless of what timezone the server itself
+// runs in (Render servers typically run in UTC).
+let lastWipeDate = null; // 'YYYY-MM-DD' in Europe/Tirane, guards against double-firing
+
+async function checkDailyWipe() {
+  try {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Europe/Tirane', year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', hour12: false
+    }).formatToParts(new Date());
+    const map = {};
+    parts.forEach(p => { map[p.type] = p.value; });
+    const dateStr = `${map.year}-${map.month}-${map.day}`;
+    const hour = parseInt(map.hour, 10);
+    const minute = parseInt(map.minute, 10);
+
+    if (hour === 11 && minute === 0 && lastWipeDate !== dateStr) {
+      const result = await Message.deleteMany({});
+      lastWipeDate = dateStr;
+      io.emit('chat_cleared');
+      console.log(`Daily message wipe at 11:00 (Europe/Tirane): deleted ${result.deletedCount} messages.`);
+    }
+  } catch (err) {
+    console.error('Daily wipe check failed:', err.message);
+  }
+}
+setInterval(checkDailyWipe, 60 * 1000); // check every minute
+
+// One-time cleanup: drop the old 45-minute TTL index on messages if it still
+// exists from an earlier version — it's been replaced by the daily wipe above.
+async function dropLegacyTtlIndex() {
+  try {
+    const indexes = await Message.collection.indexes();
+    const ttlIndex = indexes.find((idx) => idx.expireAfterSeconds !== undefined);
+    if (ttlIndex) {
+      await Message.collection.dropIndex(ttlIndex.name);
+      console.log('Dropped legacy TTL index on messages:', ttlIndex.name);
+    }
+  } catch (err) {
+    console.warn('Could not check/drop legacy TTL index:', err.message);
+  }
+}
+
 const PORT = process.env.PORT || 3001;
 const MONGODB_URI = process.env.MONGODB_URI;
 
@@ -405,10 +450,12 @@ if (!MONGODB_URI) {
 }
 
 mongoose.connect(MONGODB_URI)
-  .then(() => {
+  .then(async () => {
     console.log('Connected to MongoDB');
+    await dropLegacyTtlIndex();
     server.listen(PORT, () => console.log('Hotel Bregu backend running on port ' + PORT));
     runFollowUpCheck();
+    checkDailyWipe();
   })
   .catch((err) => {
     console.error('MongoDB connection failed:', err.message);
