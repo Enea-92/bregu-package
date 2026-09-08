@@ -325,13 +325,22 @@ details.faq p{ font-size:12.5px; opacity:0.65; margin:8px 0 0; line-height:1.6; 
 }
 .toast.show{ opacity:1; }
 
-.chat-wrap{ display:flex; flex-direction:column; height:calc(100vh - 210px); }
-.chat-log{ flex:1; overflow-y:auto; padding-bottom:10px; }
-.msg{ max-width:78%; margin-bottom:10px; font-size:13.5px; line-height:1.5; }
+.chat-wrap{ display:block; }
+.chat-log{ padding-bottom:8px; }
+.msg{ max-width:78%; margin-bottom:10px; font-size:13.5px; line-height:1.5; scroll-margin-bottom:130px; }
 .msg-in{ background:var(--white); border:0.5px solid var(--line); padding:10px 13px; border-radius:12px 12px 12px 3px; }
 .msg-out{ background:var(--sea); color:var(--sand); padding:10px 13px; border-radius:12px 12px 3px 12px; margin-left:auto; }
 .msg-time{ font-size:10px; opacity:0.5; margin-top:4px; }
-.chat-input-row{ display:flex; gap:8px; padding-top:10px; border-top:0.5px solid var(--line); }
+.chat-input-row{
+  position:fixed; bottom:calc(56px + env(safe-area-inset-bottom, 0px));
+  left:50%; transform:translateX(-50%);
+  width:100%; max-width:460px; box-sizing:border-box;
+  display:flex; gap:8px;
+  padding:10px 18px;
+  background:rgba(243,236,220,0.95); backdrop-filter:blur(8px);
+  border-top:0.5px solid var(--line);
+  z-index:14;
+}
 .chat-input-row input{
   flex:1; border:0.5px solid var(--line); border-radius:20px; padding:10px 16px;
   font-size:13.5px; font-family:inherit; outline:none; background:var(--white);
@@ -403,6 +412,8 @@ details.faq p{ font-size:12.5px; opacity:0.65; margin:8px 0 0; line-height:1.6; 
       <h2 class="section-title" data-i18n="home.title">Mirë se erdhët</h2>
       <p class="section-sub" data-i18n="home.subtitle">Gjithçka që ju duhet gjatë qëndrimit, në një vend.</p>
 
+      <div id="room-note-card" style="display:none; background:var(--gold); color:var(--ink); border-radius:12px; padding:14px 16px; margin-bottom:16px; font-size:13px; line-height:1.5;"></div>
+
       <div class="keycard">
         <div class="keycard-row">
           <div><div class="keycard-label" data-i18n="keycard.wifi">Wifi</div><div class="keycard-value" id="wifi-ssid">Bregu_Guest</div></div>
@@ -468,10 +479,10 @@ details.faq p{ font-size:12.5px; opacity:0.65; margin:8px 0 0; line-height:1.6; 
 
       <h3 class="group-heading" data-i18n="quick.issue.heading">Problem teknik</h3>
       <div class="chip-row">
-        <button class="req-chip" data-i18n="req.issue_ac" onclick="sendQuickRequest('req.issue_ac')">Klima s'punon</button>
-        <button class="req-chip" data-i18n="req.issue_tv" onclick="sendQuickRequest('req.issue_tv')">TV s'punon</button>
-        <button class="req-chip" data-i18n="req.issue_plumbing" onclick="sendQuickRequest('req.issue_plumbing')">Problem hidraulik</button>
-        <button class="req-chip" data-i18n="req.issue_electric" onclick="sendQuickRequest('req.issue_electric')">Problem elektrik</button>
+        <button class="req-chip" data-i18n="req.issue_ac" onclick="sendQuickRequest('req.issue_ac','issue')">Klima s'punon</button>
+        <button class="req-chip" data-i18n="req.issue_tv" onclick="sendQuickRequest('req.issue_tv','issue')">TV s'punon</button>
+        <button class="req-chip" data-i18n="req.issue_plumbing" onclick="sendQuickRequest('req.issue_plumbing','issue')">Problem hidraulik</button>
+        <button class="req-chip" data-i18n="req.issue_electric" onclick="sendQuickRequest('req.issue_electric','issue')">Problem elektrik</button>
       </div>
 
       <h3 class="group-heading" data-i18n="room.amenitiesHeading">Pajisjet</h3>
@@ -611,24 +622,13 @@ details.faq p{ font-size:12.5px; opacity:0.65; margin:8px 0 0; line-height:1.6; 
       <details class="faq"><summary data-i18n="faq.q2">A ka parking falas?</summary><p data-i18n="faq.a2">Po, parkimi i jashtëm është falas për mysafirët, pranë hyrjes anësore.</p></details>
       <details class="faq"><summary data-i18n="faq.q3">A pranoni kafshë shtëpiake?</summary><p data-i18n="faq.a3">Pranohen kafshë të vogla me njoftim paraprak në recepsion, me tarifë shtesë.</p></details>
       <details class="faq"><summary data-i18n="faq.q4">Deri sa orë shërbehet mëngjesi?</summary><p data-i18n="faq.a4">Mëngjesi shërbehet çdo ditë nga ora 07:30 deri në 10:30.</p></details>
-
-      <h3 class="group-heading" data-i18n="staff.heading">Për stafin: kod QR për dhomën</h3>
-      <p class="section-sub" style="margin-bottom:10px;" data-i18n="staff.desc">Çdo dhomë mund të ketë kodin e vet QR, që hap app-in me numrin e dhomës të para-plotësuar. Ndryshoni numrin më poshtë për të parë shembullin.</p>
-      <div style="display:flex; gap:8px; align-items:center; margin-bottom:12px;">
-        <input id="staff-room-input" type="text" value="214" style="width:70px; border:0.5px solid var(--line); border-radius:6px; padding:7px 9px; font-family:'IBM Plex Mono',monospace; font-size:13px;">
-        <input id="staff-floor-input" type="text" value="2" style="width:50px; border:0.5px solid var(--line); border-radius:6px; padding:7px 9px; font-family:'IBM Plex Mono',monospace; font-size:13px;">
-        <button class="rs-add" onclick="renderStaffQR()" data-i18n="staff.generate">Gjenero</button>
-      </div>
-      <div style="background:var(--white); border:0.5px solid var(--line); border-radius:12px; padding:16px; text-align:center;">
-        <img id="staff-qr-img" width="140" height="140" style="border-radius:6px;" alt="QR"/>
-        <p id="staff-qr-url" style="font-family:'IBM Plex Mono',monospace; font-size:10.5px; opacity:0.55; word-break:break-all; margin:10px 0 0;"></p>
-      </div>
     </div>
 
     <!-- CHAT -->
     <div class="view" id="view-chat">
       <h2 class="section-title" data-i18n="chat.title">Recepsioni</h2>
       <p class="section-sub" data-i18n="chat.subtitle">Zakonisht përgjigjemi brenda pak minutash.</p>
+      <button id="push-optin-btn" onclick="enablePushNotifications()" style="display:none; margin-bottom:14px; border:0.5px solid var(--aqua-dark); background:var(--sand-dim); color:var(--aqua-dark); border-radius:20px; padding:8px 14px; font-size:12.5px; font-weight:500; cursor:pointer; font-family:inherit;" data-i18n="push.enable">🔔 Aktivo njoftimet në telefon</button>
       <div class="chat-wrap">
         <div class="chat-log" id="chat-log">
           <div class="msg msg-in">
@@ -645,7 +645,7 @@ details.faq p{ font-size:12.5px; opacity:0.65; margin:8px 0 0; line-height:1.6; 
       </div>
 
       <h3 class="group-heading" data-i18n="feedback.heading" style="margin-top:22px;">Vlerësoni qëndrimin</h3>
-      <div id="feedback-box">
+      <div id="feedback-box" style="padding-bottom:80px;">
         <div class="stars" id="fb-stars">
           <button class="star-btn" data-v="1" onclick="rateStay(1)">★</button>
           <button class="star-btn" data-v="2" onclick="rateStay(2)">★</button>
@@ -735,6 +735,7 @@ const translations = {
     "dnd.on":"Aktiv","dnd.off":"Joaktiv",
     "dnd.enabledToast":"'Mos shqetësoni' u aktivizua","dnd.disabledToast":"'Mos shqetësoni' u çaktivizua",
     "dnd.enabledMsg":"Mysafiri aktivizoi 'Mos shqetësoni'.","dnd.disabledMsg":"Mysafiri çaktivizoi 'Mos shqetësoni'.",
+    "push.enable":"🔔 Aktivo njoftimet në telefon","push.enabled":"Njoftimet u aktivizuan!","push.denied":"Leja për njoftime u refuzua.","push.unavailable":"Njoftimet s'janë të disponueshme tani.",
     "quick.issue.heading":"Problem teknik",
     "req.issue_ac":"Klima s'punon","req.issue_tv":"TV s'punon","req.issue_plumbing":"Problem hidraulik","req.issue_electric":"Problem elektrik",
     "req.sentPrefix":"Kërkesë nga dhoma:","req.confirmToast":"Kërkesa u dërgua te recepsioni",
@@ -789,10 +790,7 @@ const translations = {
     "chat.replies":["Faleminderit! E kemi marrë mesazhin, dikush nga stafi do t'ju kontaktojë brenda pak minutash.","Sigurisht, po e rregullojmë menjëherë. A keni nevojë për ndonjë gjë tjetër?","Po e dërgojmë dikë në dhomën tuaj shpejt. Faleminderit për durimin."],
     "feedback.heading":"Vlerësoni qëndrimin","feedback.placeholder":"Shkruani përshtypjet tuaja (opsionale)",
     "feedback.submit":"Dërgo vlerësimin","feedback.thanks":"Faleminderit për vlerësimin tuaj!",
-    "room.chipTemplate":"Dhoma {room} · Kati {floor}",
-    "staff.heading":"Për stafin: kod QR për dhomën",
-    "staff.desc":"Çdo dhomë mund të ketë kodin e vet QR, që hap app-in me numrin e dhomës të para-plotësuar. Ndryshoni numrin më poshtë për të parë shembullin.",
-    "staff.generate":"Gjenero"
+    "room.chipTemplate":"Dhoma {room} · Kati {floor}"
   },
   en: {
     "eyebrow":"Guest guide","room.chip":"Room 214 · Floor 2","call.button":"Call",
@@ -811,6 +809,7 @@ const translations = {
     "dnd.on":"On","dnd.off":"Off",
     "dnd.enabledToast":"Do Not Disturb turned on","dnd.disabledToast":"Do Not Disturb turned off",
     "dnd.enabledMsg":"The guest turned on Do Not Disturb.","dnd.disabledMsg":"The guest turned off Do Not Disturb.",
+    "push.enable":"🔔 Enable phone notifications","push.enabled":"Notifications enabled!","push.denied":"Notification permission was denied.","push.unavailable":"Notifications aren't available right now.",
     "quick.issue.heading":"Report a problem",
     "req.issue_ac":"AC not working","req.issue_tv":"TV not working","req.issue_plumbing":"Plumbing issue","req.issue_electric":"Electrical issue",
     "req.sentPrefix":"Room request:","req.confirmToast":"Request sent to the front desk",
@@ -865,10 +864,7 @@ const translations = {
     "chat.replies":["Thank you! We've received your message, someone from staff will reach out shortly.","Of course, we'll sort that out right away. Anything else you need?","We're sending someone to your room shortly. Thanks for your patience."],
     "feedback.heading":"Rate your stay","feedback.placeholder":"Share your thoughts (optional)",
     "feedback.submit":"Send rating","feedback.thanks":"Thanks for your feedback!",
-    "room.chipTemplate":"Room {room} · Floor {floor}",
-    "staff.heading":"For staff: room QR code",
-    "staff.desc":"Each room can have its own QR code, opening the app with the room number pre-filled. Change the number below to see an example.",
-    "staff.generate":"Generate"
+    "room.chipTemplate":"Room {room} · Floor {floor}"
   },
   it: {
     "eyebrow":"Guida per gli ospiti","room.chip":"Camera 214 · Piano 2","call.button":"Chiama",
@@ -887,6 +883,7 @@ const translations = {
     "dnd.on":"Attivo","dnd.off":"Non attivo",
     "dnd.enabledToast":"'Non disturbare' attivato","dnd.disabledToast":"'Non disturbare' disattivato",
     "dnd.enabledMsg":"L'ospite ha attivato 'Non disturbare'.","dnd.disabledMsg":"L'ospite ha disattivato 'Non disturbare'.",
+    "push.enable":"🔔 Attiva notifiche sul telefono","push.enabled":"Notifiche attivate!","push.denied":"Il permesso per le notifiche è stato negato.","push.unavailable":"Le notifiche non sono disponibili ora.",
     "quick.issue.heading":"Segnala un problema",
     "req.issue_ac":"Aria condizionata non funziona","req.issue_tv":"TV non funziona","req.issue_plumbing":"Problema idraulico","req.issue_electric":"Problema elettrico",
     "req.sentPrefix":"Richiesta dalla camera:","req.confirmToast":"Richiesta inviata alla reception",
@@ -941,10 +938,7 @@ const translations = {
     "chat.replies":["Grazie! Abbiamo ricevuto il vostro messaggio, un membro dello staff vi contatterà a breve.","Certo, sistemiamo subito. Vi serve altro?","Stiamo mandando qualcuno in camera vostra a breve. Grazie per la pazienza."],
     "feedback.heading":"Valutate il soggiorno","feedback.placeholder":"Condividete le vostre impressioni (opzionale)",
     "feedback.submit":"Invia valutazione","feedback.thanks":"Grazie per il vostro feedback!",
-    "room.chipTemplate":"Camera {room} · Piano {floor}",
-    "staff.heading":"Per lo staff: codice QR della camera",
-    "staff.desc":"Ogni camera può avere il proprio codice QR, che apre l'app con il numero di camera precompilato. Cambiate il numero qui sotto per vedere un esempio.",
-    "staff.generate":"Genera"
+    "room.chipTemplate":"Camera {room} · Piano {floor}"
   },
   de: {
     "eyebrow":"Gästeführer","room.chip":"Zimmer 214 · Etage 2","call.button":"Anrufen",
@@ -963,6 +957,7 @@ const translations = {
     "dnd.on":"Aktiv","dnd.off":"Inaktiv",
     "dnd.enabledToast":"'Bitte nicht stören' aktiviert","dnd.disabledToast":"'Bitte nicht stören' deaktiviert",
     "dnd.enabledMsg":"Der Gast hat 'Bitte nicht stören' aktiviert.","dnd.disabledMsg":"Der Gast hat 'Bitte nicht stören' deaktiviert.",
+    "push.enable":"🔔 Telefon-Benachrichtigungen aktivieren","push.enabled":"Benachrichtigungen aktiviert!","push.denied":"Die Berechtigung für Benachrichtigungen wurde verweigert.","push.unavailable":"Benachrichtigungen sind momentan nicht verfügbar.",
     "quick.issue.heading":"Problem melden",
     "req.issue_ac":"Klimaanlage funktioniert nicht","req.issue_tv":"TV funktioniert nicht","req.issue_plumbing":"Sanitärproblem","req.issue_electric":"Elektrisches Problem",
     "req.sentPrefix":"Anfrage aus dem Zimmer:","req.confirmToast":"Anfrage an die Rezeption gesendet",
@@ -1017,10 +1012,7 @@ const translations = {
     "chat.replies":["Danke! Wir haben Ihre Nachricht erhalten, jemand vom Team meldet sich gleich bei Ihnen.","Natürlich, wir kümmern uns sofort darum. Brauchen Sie noch etwas?","Wir schicken gleich jemanden auf Ihr Zimmer. Danke für Ihre Geduld."],
     "feedback.heading":"Bewerten Sie Ihren Aufenthalt","feedback.placeholder":"Teilen Sie uns Ihre Eindrücke mit (optional)",
     "feedback.submit":"Bewertung senden","feedback.thanks":"Danke für Ihr Feedback!",
-    "room.chipTemplate":"Zimmer {room} · Etage {floor}",
-    "staff.heading":"Für das Team: Zimmer-QR-Code",
-    "staff.desc":"Jedes Zimmer kann seinen eigenen QR-Code haben, der die App mit vorausgefüllter Zimmernummer öffnet. Ändern Sie die Nummer unten für ein Beispiel.",
-    "staff.generate":"Erstellen"
+    "room.chipTemplate":"Zimmer {room} · Etage {floor}"
   }
 };
 
@@ -1054,6 +1046,30 @@ async function loadHotelContent(){
     initRealMap();
     fetchWeather(dynamicContent.location?.lat, dynamicContent.location?.lng);
   }catch(e){ console.warn('Could not load hotel content, using example content.', e); }
+  loadRoomNote();
+}
+
+let currentRoomNote = null;
+
+async function loadRoomNote(){
+  if(!API_BASE || !currentRoom) return;
+  try{
+    const res = await fetch(API_BASE + '/api/room-notes/' + encodeURIComponent(currentRoom));
+    currentRoomNote = await res.json();
+    renderRoomNote();
+  }catch(e){ console.warn('Could not load room note.', e); }
+}
+
+function renderRoomNote(){
+  const box = document.getElementById('room-note-card');
+  if(!box) return;
+  const text = currentRoomNote?.note?.[currentLang] || currentRoomNote?.note?.sq;
+  if(text){
+    box.textContent = text;
+    box.style.display = 'block';
+  } else {
+    box.style.display = 'none';
+  }
 }
 
 async function fetchWeather(lat, lng){
@@ -1165,20 +1181,12 @@ function setLang(lang){
   renderDynamicRoom();
   renderDynamicRecommendations();
   renderDndToggle();
+  renderRoomNote();
 }
 
 function updateRoomChip(){
   const tpl = translations[currentLang]['room.chipTemplate'];
   document.getElementById('room-chip-text').textContent = tpl.replace('{room}', currentRoom).replace('{floor}', currentFloor);
-}
-
-function renderStaffQR(){
-  const room = document.getElementById('staff-room-input').value.trim() || '214';
-  const floor = document.getElementById('staff-floor-input').value.trim() || '1';
-  const baseUrl = window.location.href.split('?')[0];
-  const fullUrl = baseUrl + '?room=' + encodeURIComponent(room) + '&floor=' + encodeURIComponent(floor);
-  document.getElementById('staff-qr-img').src = 'https://api.qrserver.com/v1/create-qr-code/?size=140x140&data=' + encodeURIComponent(fullUrl);
-  document.getElementById('staff-qr-url').textContent = fullUrl;
 }
 
 const SESSION_HOURS = 3; // fallback for legacy ?room= links without a signed token
@@ -1237,11 +1245,6 @@ async function initFromUrl(){
   }
 
   updateRoomChip();
-  const rInput = document.getElementById('staff-room-input');
-  const fInput = document.getElementById('staff-floor-input');
-  if(rInput) rInput.value = currentRoom;
-  if(fInput) fInput.value = currentFloor;
-  renderStaffQR();
   loadChatHistory();
   loadHotelContent();
   loadDndState();
@@ -1262,14 +1265,75 @@ window.addEventListener('DOMContentLoaded', initFromUrl);
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('service-worker.js').catch(() => {});
+    navigator.serviceWorker.register('service-worker.js').then(() => {
+      checkPushOptInVisibility();
+    }).catch(() => {});
   });
+}
+
+function urlBase64ToUint8Array(base64String){
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for(let i = 0; i < rawData.length; i++) outputArray[i] = rawData.charCodeAt(i);
+  return outputArray;
+}
+
+async function checkPushOptInVisibility(){
+  const btn = document.getElementById('push-optin-btn');
+  if(!btn) return;
+  if(!('serviceWorker' in navigator) || !('PushManager' in window) || !API_BASE) return;
+  try{
+    const reg = await navigator.serviceWorker.ready;
+    const existing = await reg.pushManager.getSubscription();
+    if(!existing && Notification.permission !== 'denied'){
+      btn.style.display = 'inline-block';
+    }
+  }catch(e){}
+}
+
+async function enablePushNotifications(){
+  const btn = document.getElementById('push-optin-btn');
+  try{
+    const permission = await Notification.requestPermission();
+    if(permission !== 'granted'){
+      showToast(translations[currentLang]['push.denied']);
+      return;
+    }
+    const keyRes = await fetch(API_BASE + '/api/push/vapid-public-key');
+    const { publicKey } = await keyRes.json();
+    if(!publicKey){
+      showToast(translations[currentLang]['push.unavailable']);
+      return;
+    }
+    const reg = await navigator.serviceWorker.ready;
+    const subscription = await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(publicKey)
+    });
+    await fetch(API_BASE + '/api/push/subscribe', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ room_number: currentRoom, subscription: subscription.toJSON() })
+    });
+    if(btn) btn.style.display = 'none';
+    showToast(translations[currentLang]['push.enabled']);
+  }catch(e){
+    console.warn('Push subscription failed', e);
+    showToast(translations[currentLang]['push.unavailable']);
+  }
 }
 
 function showView(name){
   document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
   document.getElementById('view-'+name).classList.add('active');
   document.querySelectorAll('.tab-btn').forEach(b=>b.classList.toggle('on', b.dataset.view===name));
+  if(name === 'chat'){
+    const log = document.getElementById('chat-log');
+    const lastMsg = log && log.lastElementChild;
+    if(lastMsg) setTimeout(()=>lastMsg.scrollIntoView({ behavior:'auto', block:'end' }), 30);
+  }
 }
 
 function showToast(text){
@@ -1314,22 +1378,24 @@ function apiPost(path, body){
   }).catch(err => { console.warn('API call failed:', err); return null; });
 }
 
-function pushInMsg(text){
+function pushInMsg(text, scrollBehavior){
   const log = document.getElementById('chat-log');
   const inMsg = document.createElement('div');
   inMsg.className = 'msg msg-in';
   inMsg.innerHTML = text + '<div class="msg-time">'+timeNow()+'</div>';
   log.appendChild(inMsg);
-  log.scrollTop = log.scrollHeight;
+  if(scrollBehavior !== false) inMsg.scrollIntoView({ behavior: scrollBehavior || 'smooth', block:'end' });
+  return inMsg;
 }
 
-function pushOutMsg(text){
+function pushOutMsg(text, scrollBehavior){
   const log = document.getElementById('chat-log');
   const out = document.createElement('div');
   out.className = 'msg msg-out';
   out.innerHTML = text + '<div class="msg-time">'+timeNow()+'</div>';
   log.appendChild(out);
-  log.scrollTop = log.scrollHeight;
+  if(scrollBehavior !== false) out.scrollIntoView({ behavior: scrollBehavior || 'smooth', block:'end' });
+  return out;
 }
 
 async function loadChatHistory(){
@@ -1337,7 +1403,9 @@ async function loadChatHistory(){
   try{
     const res = await fetch(API_BASE + '/api/messages/' + encodeURIComponent(currentRoom));
     const msgs = await res.json();
-    msgs.forEach(m => { m.sender === 'guest' ? pushOutMsg(m.text) : pushInMsg(m.text); });
+    let lastEl = null;
+    msgs.forEach(m => { lastEl = m.sender === 'guest' ? pushOutMsg(m.text, false) : pushInMsg(m.text, false); });
+    if(lastEl) lastEl.scrollIntoView({ behavior:'auto', block:'end' });
   }catch(e){ console.warn('Could not load chat history', e); }
 }
 
@@ -1350,13 +1418,13 @@ function sendMsg(){
   apiPost('/api/messages', { room_number: currentRoom, sender: 'guest', text });
 }
 
-function sendQuickRequest(key){
+function sendQuickRequest(key, category){
   const label = translations[currentLang][key];
   const prefix = translations[currentLang]['req.sentPrefix'];
   pushOutMsg(prefix + ' ' + label);
   showToast(translations[currentLang]['req.confirmToast']);
   showView('chat');
-  apiPost('/api/quick-requests', { room_number: currentRoom, request_type: label });
+  apiPost('/api/quick-requests', { room_number: currentRoom, request_type: label, category: category || 'request' });
 }
 
 let dndOn = false;

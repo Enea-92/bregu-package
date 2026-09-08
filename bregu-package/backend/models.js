@@ -18,6 +18,7 @@ const quickRequestSchema = new mongoose.Schema(
   {
     room_number: { type: String, required: true },
     request_type: { type: String, required: true },
+    category: { type: String, enum: ['request', 'issue'], default: 'request' },
     status: { type: String, default: 'pending' }
   },
   { timestamps: { createdAt: 'created_at', updatedAt: false } }
@@ -89,6 +90,31 @@ const authSettingsSchema = new mongoose.Schema({
   staff_password_hash: { type: String, required: true }
 });
 
+// --- Per-room notes/instructions — admin can apply the same note to one or
+// many rooms at once (e.g. "this room has a jacuzzi", "quiet room, no balcony").
+const roomNoteSchema = new mongoose.Schema(
+  {
+    room_number: { type: String, required: true, unique: true },
+    note: langText
+  },
+  { timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } }
+);
+
+// --- Web Push subscriptions — one per device/browser install, tied to a room
+// so a staff reply can trigger a real phone notification even if the guest
+// app isn't open.
+const pushSubscriptionSchema = new mongoose.Schema(
+  {
+    room_number: { type: String, required: true, index: true },
+    endpoint: { type: String, required: true, unique: true },
+    keys: {
+      p256dh: { type: String, required: true },
+      auth: { type: String, required: true }
+    }
+  },
+  { timestamps: { createdAt: 'created_at', updatedAt: false } }
+);
+
 module.exports = {
   Message: mongoose.model('Message', messageSchema),
   QuickRequest: mongoose.model('QuickRequest', quickRequestSchema),
@@ -97,5 +123,7 @@ module.exports = {
   HotelContent: mongoose.model('HotelContent', hotelContentSchema),
   Recommendation: mongoose.model('Recommendation', recommendationSchema),
   AuthSettings: mongoose.model('AuthSettings', authSettingsSchema),
+  RoomNote: mongoose.model('RoomNote', roomNoteSchema),
+  PushSubscription: mongoose.model('PushSubscription', pushSubscriptionSchema),
   toDTO
 };

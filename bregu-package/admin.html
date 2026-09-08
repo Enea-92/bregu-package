@@ -150,6 +150,31 @@ select{ border:0.5px solid var(--line); border-radius:7px; padding:8px 10px; fon
   </div>
 
   <div class="card" style="margin-top:24px;">
+    <h2>Shënime për dhoma specifike</h2>
+    <p class="hint">Vendos të njëjtin shënim për një ose disa dhoma njëkohësisht (p.sh. "kjo dhomë ka xhakuzi", "dhomë e qetë, pa ballkon"). Shfaqet te Kryesorja e mysafirit vetëm nëse ka shënim.</p>
+    <div class="field-row"><label>Dhoma nga</label><input id="note-room-from" placeholder="101" style="width:100px;"></div>
+    <div class="field-row"><label>Dhoma deri (opsionale)</label><input id="note-room-to" placeholder="110 (lëre bosh për 1 dhomë)" style="width:100px;"></div>
+    <div class="item-block">
+      <div class="lang-tabs">
+        <button type="button" class="lang-tab on" onclick="switchNoteLangTab(this,'sq')">SQ</button>
+        <button type="button" class="lang-tab" onclick="switchNoteLangTab(this,'en')">EN</button>
+        <button type="button" class="lang-tab" onclick="switchNoteLangTab(this,'it')">IT</button>
+        <button type="button" class="lang-tab" onclick="switchNoteLangTab(this,'de')">DE</button>
+      </div>
+      <div class="field-row"><label>Shënimi</label><div style="flex:1;">
+        <textarea data-lang="sq" data-field="note" style="display:block;" rows="2" placeholder="Shkruaj shënimin në shqip..."></textarea>
+        <textarea data-lang="en" data-field="note" style="display:none;" rows="2" placeholder="Write the note in English..."></textarea>
+        <textarea data-lang="it" data-field="note" style="display:none;" rows="2" placeholder="Scrivi la nota in italiano..."></textarea>
+        <textarea data-lang="de" data-field="note" style="display:none;" rows="2" placeholder="Notiz auf Deutsch schreiben..."></textarea>
+      </div></div>
+    </div>
+    <button class="save-btn" onclick="saveRoomNoteBulk()">Ruaj shënimin për dhomat e listuara</button>
+
+    <p class="hint" style="margin:18px 0 8px; font-weight:500; opacity:0.8;">Shënime aktuale</p>
+    <div id="room-notes-list"><p class="rs-cart-empty">Duke ngarkuar...</p></div>
+  </div>
+
+  <div class="card" style="margin-top:24px;">
     <h2>Ndrysho fjalëkalimin</h2>
     <p class="hint">Ruhet i koduar (hash) në bazën e të dhënash — ndryshimi ka efekt menjëherë, pa pasur nevojë të prekësh Render.</p>
     <div class="field-row"><label>Roli</label>
@@ -310,6 +335,7 @@ async function unlock(){
     document.getElementById('locked-view').style.display = 'none';
     document.getElementById('main-view').style.display = 'block';
     renderAll();
+    loadRoomNotesList();
   } catch(e) {
     if(e.message === 'wrong password'){
       showToast('Fjalëkalim i gabuar.', true);
@@ -511,6 +537,71 @@ async function deleteRecommendation(idx){
   recommendations.splice(idx,1);
   renderRecommendations();
   showToast('U fshi.');
+}
+
+function switchNoteLangTab(btn, lang){
+  const card = btn.closest('.card');
+  card.querySelectorAll('.lang-tab').forEach(b=>b.classList.remove('on'));
+  btn.classList.add('on');
+  card.querySelectorAll('textarea[data-field="note"]').forEach(el=>{
+    el.style.display = el.getAttribute('data-lang') === lang ? 'block' : 'none';
+  });
+}
+
+function expandRoomRange(fromStr, toStr){
+  const from = parseInt(fromStr, 10);
+  const to = toStr ? parseInt(toStr, 10) : from;
+  if(isNaN(from)) return [];
+  const rooms = [];
+  const start = Math.min(from, isNaN(to) ? from : to);
+  const end = Math.max(from, isNaN(to) ? from : to);
+  for(let r = start; r <= end; r++) rooms.push(String(r));
+  return rooms;
+}
+
+async function saveRoomNoteBulk(){
+  const fromVal = document.getElementById('note-room-from').value.trim();
+  const toVal = document.getElementById('note-room-to').value.trim();
+  const rooms = expandRoomRange(fromVal, toVal);
+  if(rooms.length === 0){ showToast('Vendos të paktën një numër dhome.', true); return; }
+
+  const note = {};
+  document.querySelectorAll('textarea[data-field="note"]').forEach(el => {
+    note[el.getAttribute('data-lang')] = el.value;
+  });
+  if(!note.sq && !note.en && !note.it && !note.de){ showToast('Shkruaj tekstin e shënimit.', true); return; }
+
+  try{
+    const res = await fetch(apiBase + '/api/room-notes/bulk', {
+      method:'POST',
+      headers:{ 'Content-Type':'application/json', 'x-admin-password': adminPassword },
+      body: JSON.stringify({ rooms, note })
+    });
+    if(!res.ok) throw new Error(await res.text());
+    showToast(`Shënimi u ruajt për ${rooms.length} dhoma.`);
+    loadRoomNotesList();
+  }catch(e){ showToast('Gabim duke ruajtur shënimin.', true); }
+}
+
+async function loadRoomNotesList(){
+  try{
+    const res = await fetch(apiBase + '/api/room-notes', { headers:{ 'x-admin-password': adminPassword } });
+    const notes = await res.json();
+    const box = document.getElementById('room-notes-list');
+    box.innerHTML = notes.length === 0 ? '<p class="rs-cart-empty">Ende pa shënime.</p>' : notes.map(n => `
+      <div class="rs-item">
+        <p class="rs-name">Dhoma ${n.room_number} — <span style="opacity:0.6; font-weight:400;">${(n.note?.sq || n.note?.en || '').slice(0,60)}</span></p>
+        <button class="rs-add" onclick="deleteRoomNote('${n.room_number}')">Fshi</button>
+      </div>`).join('');
+  }catch(e){}
+}
+
+async function deleteRoomNote(room){
+  try{
+    await fetch(apiBase + '/api/room-notes/' + encodeURIComponent(room), { method:'DELETE', headers:{ 'x-admin-password': adminPassword } });
+    showToast('Shënimi u fshi.');
+    loadRoomNotesList();
+  }catch(e){ showToast('Gabim duke fshirë.', true); }
 }
 
 async function changePassword(){

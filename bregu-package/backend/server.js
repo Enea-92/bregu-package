@@ -11,9 +11,39 @@ const mongoose = require('mongoose');
 const { Server } = require('socket.io');
 const rateLimit = require('express-rate-limit');
 const bcrypt = require('bcryptjs');
-const { Message, QuickRequest, RoomServiceOrder, Feedback, HotelContent, Recommendation, AuthSettings, toDTO } = require('./models');
+const { Message, QuickRequest, RoomServiceOrder, Feedback, HotelContent, Recommendation, AuthSettings, RoomNote, PushSubscription, toDTO } = require('./models');
+const webpush = require('web-push');
 
 const app = express();
+
+// --- Web Push (VAPID) setup ---
+const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY;
+const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY;
+const VAPID_SUBJECT = process.env.VAPID_SUBJECT || 'mailto:admin@example.com';
+const pushEnabled = Boolean(VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY);
+if (pushEnabled) {
+  webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
+} else {
+  console.warn('VAPID_PUBLIC_KEY/VAPID_PRIVATE_KEY not set — push notifications to guests are disabled.');
+}
+
+async function sendPushToRoom(room_number, title, body) {
+  if (!pushEnabled) return;
+  const subs = await PushSubscription.find({ room_number });
+  const payload = JSON.stringify({ title, body });
+  await Promise.all(subs.map(async (sub) => {
+    try {
+      await webpush.sendNotification({ endpoint: sub.endpoint, keys: sub.keys }, payload);
+    } catch (err) {
+      if (err.statusCode === 404 || err.statusCode === 410) {
+        // Subscription is no longer valid (browser unsubscribed, etc.) — clean it up.
+        await PushSubscription.deleteOne({ _id: sub._id });
+      } else {
+        console.warn('Push send failed:', err.message);
+      }
+    }
+  }));
+}
 app.use(cors());
 app.use(express.json());
 
@@ -143,6 +173,11 @@ app.post('/api/messages', verifyGuestSession, async (req, res) => {
   const message = toDTO(doc);
 
   io.to(roomChannel(room_number)).to('staff').emit('new_message', message);
+
+  if (sender === 'staff') {
+    sendPushToRoom(room_number, 'Mesazh nga recepsioni', text).catch(() => {});
+  }
+
   res.status(201).json(message);
 });
 
@@ -161,9 +196,9 @@ app.get('/api/messages', requireStaff, async (req, res) => {
 // ============ QUICK REQUESTS ============
 
 app.post('/api/quick-requests', verifyGuestSession, async (req, res) => {
-  const { room_number, request_type } = req.body;
+  const { room_number, request_type, category } = req.body;
   if (!room_number || !request_type) return res.status(400).json({ error: 'room_number, request_type required' });
-  const doc = await QuickRequest.create({ room_number, request_type });
+  const doc = await QuickRequest.create({ room_number, request_type, category: category === 'issue' ? 'issue' : 'request' });
   const item = toDTO(doc);
   io.to('staff').emit('new_request', item);
   res.status(201).json(item);
@@ -238,6 +273,43 @@ app.put('/api/content', requireAdmin, async (req, res) => {
   await content.save();
   io.emit('content_updated');
   res.json(toDTO(content));
+});
+
+// ============ ROOM NOTES (per-room instructions, editable for 1 or many rooms at once) ============
+
+// Guest app: read the note for its own room (public, no auth needed)
+app.get('/api/room-notes/:room', async (req, res) => {
+  const doc = await RoomNote.findOne({ room_number: req.params.room });
+  res.json(doc ? toDTO(doc) : null);
+});
+
+// Admin: list all room notes
+app.get('/api/room-notes', requireAdmin, async (req, res) => {
+  const docs = await RoomNote.find().sort({ room_number: 1 });
+  res.json(docs.map(toDTO));
+});
+
+// Admin: apply the same note to one or many rooms in a single call
+app.post('/api/room-notes/bulk', requireAdmin, async (req, res) => {
+  const { rooms, note } = req.body;
+  if (!Array.isArray(rooms) || rooms.length === 0 || !note) {
+    return res.status(400).json({ error: 'rooms[] and note required' });
+  }
+  const results = await Promise.all(rooms.map((room) =>
+    RoomNote.findOneAndUpdate(
+      { room_number: String(room) },
+      { room_number: String(room), note },
+      { upsert: true, new: true }
+    )
+  ));
+  io.emit('content_updated');
+  res.json(results.map(toDTO));
+});
+
+app.delete('/api/room-notes/:room', requireAdmin, async (req, res) => {
+  await RoomNote.deleteOne({ room_number: req.params.room });
+  io.emit('content_updated');
+  res.json({ deleted: true });
 });
 
 // ============ RECOMMENDATIONS ============
@@ -366,6 +438,32 @@ app.get('/api/session/verify', (req, res) => {
   const payload = verifySessionToken(req.query.token);
   if (!payload) return res.status(401).json({ valid: false });
   res.json({ valid: true, room: payload.room, floor: payload.floor, exp: payload.exp });
+});
+
+// ============ WEB PUSH (guest phone notifications) ============
+
+app.get('/api/push/vapid-public-key', (req, res) => {
+  res.json({ publicKey: pushEnabled ? VAPID_PUBLIC_KEY : null });
+});
+
+app.post('/api/push/subscribe', async (req, res) => {
+  const { room_number, subscription } = req.body;
+  if (!room_number || !subscription || !subscription.endpoint || !subscription.keys) {
+    return res.status(400).json({ error: 'room_number and subscription required' });
+  }
+  await PushSubscription.findOneAndUpdate(
+    { endpoint: subscription.endpoint },
+    { room_number, endpoint: subscription.endpoint, keys: subscription.keys },
+    { upsert: true }
+  );
+  res.status(201).json({ ok: true });
+});
+
+app.post('/api/push/unsubscribe', async (req, res) => {
+  const { endpoint } = req.body;
+  if (!endpoint) return res.status(400).json({ error: 'endpoint required' });
+  await PushSubscription.deleteOne({ endpoint });
+  res.json({ ok: true });
 });
 
 // ============ health check ============
