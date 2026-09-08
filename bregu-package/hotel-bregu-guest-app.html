@@ -708,6 +708,8 @@ try {
   socket.on('chat_cleared', () => {
     const log = document.getElementById('chat-log');
     if(log) log.innerHTML = '';
+    try{ localStorage.removeItem('bregu_session'); }catch(e){}
+    if(!document.getElementById('session-locked-overlay')) showSessionLocked();
   });
   socket.on('order_updated', (order) => {
     if (order.room_number !== currentRoom) return;
@@ -1189,8 +1191,21 @@ function updateRoomChip(){
   document.getElementById('room-chip-text').textContent = tpl.replace('{room}', currentRoom).replace('{floor}', currentFloor);
 }
 
-const SESSION_HOURS = 3; // fallback for legacy ?room= links without a signed token
 let sessionToken = null;
+
+// A "hotel day" runs from 11:00 to 11:00 (Europe/Tirane) — the same moment
+// messages get wiped daily. A session scanned during one hotel day stops
+// being valid once the next one starts, so the guest must re-scan the QR.
+function getHotelDay(){
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/Tirane', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', hour12: false
+  }).formatToParts(new Date());
+  const map = {};
+  parts.forEach(p => { map[p.type] = p.value; });
+  const d = new Date(Date.UTC(parseInt(map.year,10), parseInt(map.month,10)-1, parseInt(map.day,10)));
+  if(parseInt(map.hour,10) < 11) d.setUTCDate(d.getUTCDate() - 1);
+  return d.toISOString().slice(0,10);
+}
 
 async function initFromUrl(){
   const params = new URLSearchParams(window.location.search);
@@ -1200,9 +1215,8 @@ async function initFromUrl(){
   let sessionValid = false;
 
   if(urlToken){
-    // New-style link: a signed token issued by staff, with expiry baked in
-    // at generation time. The server is the source of truth — a forwarded
-    // link stops working once the token expires, no matter who opens it.
+    // Legacy signed-token link, still supported if one was issued earlier —
+    // the server enforces whatever expiry that specific token was given.
     try{
       const res = await fetch(API_BASE + '/api/session/verify?token=' + encodeURIComponent(urlToken));
       if(res.ok){
@@ -1217,11 +1231,11 @@ async function initFromUrl(){
       }
     }catch(e){ console.warn('Session verification failed', e); }
   } else if(urlRoom){
-    // Legacy link (no token) — kept working for backward compatibility,
-    // but only gets the simple client-side timer, not server-enforced expiry.
+    // Standard QR code link — the code itself never expires, but each scan
+    // is only valid for the current hotel day (until the next 11:00 wipe).
     currentRoom = urlRoom;
     currentFloor = urlFloor || currentFloor;
-    try{ localStorage.setItem('bregu_session', JSON.stringify({ room: currentRoom, floor: currentFloor, scannedAt: Date.now() })); }catch(e){}
+    try{ localStorage.setItem('bregu_session', JSON.stringify({ room: currentRoom, floor: currentFloor, hotelDay: getHotelDay() })); }catch(e){}
     sessionValid = true;
   } else {
     try{
@@ -1231,7 +1245,7 @@ async function initFromUrl(){
         currentFloor = stored.floor || currentFloor;
         sessionToken = stored.token;
         sessionValid = true;
-      } else if(stored && stored.room && !stored.token && stored.scannedAt && (Date.now() - stored.scannedAt) < SESSION_HOURS * 60 * 60 * 1000){
+      } else if(stored && stored.room && !stored.token && stored.hotelDay === getHotelDay()){
         currentRoom = stored.room;
         currentFloor = stored.floor || currentFloor;
         sessionValid = true;
@@ -1253,11 +1267,12 @@ async function initFromUrl(){
 
 function showSessionLocked(){
   const overlay = document.createElement('div');
+  overlay.id = 'session-locked-overlay';
   overlay.style.cssText = 'position:fixed;inset:0;background:#0E3A3D;color:#F3ECDC;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:32px;z-index:9999;font-family:"Work Sans",sans-serif;';
   overlay.innerHTML = `
     <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#CE9A42" stroke-width="1.6" style="margin-bottom:18px;"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><path d="M14 14h3v3h-3zM19 14h2v2h-2zM14 19h2v2h-2zM19 19h2v2h-2z"/></svg>
     <h1 style="font-family:'Fraunces',serif;font-weight:500;font-size:20px;margin:0 0 10px;">Skano përsëri kodin QR</h1>
-    <p style="font-size:14px;opacity:0.75;max-width:320px;line-height:1.6;margin:0;">Kodi ka skaduar ose s'është skanuar ende. Skano kodin QR në dhomën tuaj për të vazhduar.</p>
+    <p style="font-size:14px;opacity:0.75;max-width:320px;line-height:1.6;margin:0;">Çdo ditë në orën 11:00 (check-out) duhet të skanosh sërish kodin QR në dhomën tuaj për të vazhduar.</p>
   `;
   document.body.appendChild(overlay);
 }

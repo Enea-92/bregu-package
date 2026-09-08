@@ -95,8 +95,7 @@ select{ border:0.5px solid var(--line); border-radius:7px; padding:8px 10px; fon
     <div class="field-row"><label>Dhoma nga</label><input id="qr-room-from" placeholder="101" style="width:100px;"></div>
     <div class="field-row"><label>Dhoma deri (opsionale)</label><input id="qr-room-to" placeholder="110 (lëre bosh për 1 dhomë)" style="width:100px;"></div>
     <div class="field-row"><label>Kati</label><input id="qr-floor" placeholder="1" style="width:100px;"></div>
-    <div class="field-row"><label>Skadon pas (orë)</label><input id="qr-hours" type="number" placeholder="72" value="72" style="width:100px;"></div>
-    <p class="hint" style="margin:2px 0 10px;">Koha fillon nga momenti i gjenerimit, jo nga hapja e linkut — p.sh. 72 orë ≈ 3 net qëndrimi. Vendos aq sa zgjat qëndrimi i mysafirit.</p>
+    <p class="hint" style="margin:2px 0 10px;">Kodet QR nuk skadojnë — mund t'i printosh dhe vendosësh një herë përgjithmonë. Vetëm mesazhet e chat-it fshihen automatikisht çdo ditë në orën 11:00.</p>
     <button class="add-btn" onclick="addQrGroup()">+ Shto në listë</button>
 
     <div id="qr-queue" style="margin:12px 0; display:flex; flex-wrap:wrap; gap:6px;"></div>
@@ -247,47 +246,25 @@ function expandQrQueue(){
   return rooms;
 }
 
-async function generateQrBatch(){
+function generateQrBatch(){
   if(qrQueue.length === 0){ showToast('Shto të paktën një dhomë ose grup dhomash në listë.', true); return; }
   const appUrl = document.getElementById('qr-app-url').value.trim().replace(/\/$/, '');
-  const hours = parseFloat(document.getElementById('qr-hours').value) || 72;
   qrRooms = expandQrQueue();
 
-  showToast('Duke gjeneruar token-at e sigurt...');
   const grid = document.getElementById('qr-grid');
-
-  try{
-    const withTokens = await Promise.all(qrRooms.map(async (r) => {
-      const res = await fetch(apiBase + '/api/session/issue', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-staff-password': adminPassword },
-        body: JSON.stringify({ room: r.room, floor: r.floor, hours })
-      });
-      if(!res.ok) throw new Error('session issue failed');
-      const data = await res.json();
-      return { ...r, token: data.token, exp: data.exp };
-    }));
-    qrRooms = withTokens;
-  }catch(e){
-    showToast('Gabim duke gjeneruar token-at. Kontrollo lidhjen/fjalëkalimin.', true);
-    return;
-  }
-
   grid.innerHTML = qrRooms.map(r => {
-    const fullUrl = appUrl + '?token=' + encodeURIComponent(r.token);
+    const fullUrl = appUrl + '?room=' + encodeURIComponent(r.room) + '&floor=' + encodeURIComponent(r.floor);
     const qrSrc = 'https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=' + encodeURIComponent(fullUrl);
-    const expDate = new Date(r.exp);
     return `<div class="qr-card">
       <img src="${qrSrc}" alt="QR dhoma ${r.room}">
       <p>Dhoma ${r.room}</p>
-      <p style="font-size:10px; opacity:0.5; margin-top:-6px;">Skadon: ${expDate.toLocaleString('sq-AL')}</p>
       <a href="${qrSrc}" download="dhoma-${r.room}-qr.png">⬇ PNG</a>
     </div>`;
   }).join('');
 
   document.getElementById('qr-download-zip').style.display = qrRooms.length > 1 ? 'inline-block' : 'none';
   document.getElementById('qr-print-btn').style.display = 'inline-block';
-  showToast(`U gjeneruan ${qrRooms.length} kode QR, të vlefshme ${hours} orë.`);
+  showToast(`U gjeneruan ${qrRooms.length} kode QR, pa afat skadimi.`);
 }
 
 async function downloadQrZip(){
@@ -297,7 +274,7 @@ async function downloadQrZip(){
     const appUrl = document.getElementById('qr-app-url').value.trim().replace(/\/$/, '');
     const zip = new JSZip();
     await Promise.all(qrRooms.map(async r => {
-      const fullUrl = appUrl + '?token=' + encodeURIComponent(r.token);
+      const fullUrl = appUrl + '?room=' + encodeURIComponent(r.room) + '&floor=' + encodeURIComponent(r.floor);
       const qrSrc = 'https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=' + encodeURIComponent(fullUrl);
       const res = await fetch(qrSrc);
       const blob = await res.blob();
