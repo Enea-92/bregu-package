@@ -1,8 +1,10 @@
 // Minimal service worker — just enough to make the app installable
-// ("Add to Home Screen") and cache the app shell for faster repeat loads.
-// Not a full offline strategy: chat/orders/content still need a live connection.
+// ("Add to Home Screen") and provide an offline fallback.
+// IMPORTANT: uses network-first for the HTML shell (not cache-first) so that
+// deployed updates show up immediately instead of being stuck behind a stale
+// cached copy. The cache is only used when the network is unreachable.
 
-const CACHE_NAME = 'bregu-shell-v1';
+const CACHE_NAME = 'bregu-shell-v2';
 const SHELL_FILES = [
   'hotel-bregu-guest-app.html',
   'manifest.json',
@@ -27,12 +29,17 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
-  // Only cache-first for our own shell files; everything else (API calls,
-  // socket.io, tiles, weather) always goes to the network.
   const url = new URL(event.request.url);
   if (url.origin === self.location.origin && SHELL_FILES.some((f) => url.pathname.endsWith(f))) {
+    // Network-first: always try to get the latest version. Only fall back
+    // to the cached copy if the network request fails (offline).
     event.respondWith(
-      caches.match(event.request).then((cached) => cached || fetch(event.request))
+      fetch(event.request)
+        .then((networkResponse) => {
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, networkResponse.clone()));
+          return networkResponse;
+        })
+        .catch(() => caches.match(event.request))
     );
   }
 });

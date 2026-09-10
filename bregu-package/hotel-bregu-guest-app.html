@@ -458,6 +458,11 @@ details.faq p{ font-size:12.5px; opacity:0.65; margin:8px 0 0; line-height:1.6; 
         <button class="req-chip" data-i18n="req.towels" onclick="sendQuickRequest('req.towels')">Peshqirë shtesë</button>
         <button class="req-chip" data-i18n="req.cleaning" onclick="sendQuickRequest('req.cleaning')">Pastrim dhome</button>
         <button class="req-chip" data-i18n="req.pillows" onclick="sendQuickRequest('req.pillows')">Jastëkë shtesë</button>
+        <button class="req-chip" data-i18n="req.issue_ac" onclick="sendQuickRequest('req.issue_ac','issue')">Klima s'punon</button>
+        <button class="req-chip" data-i18n="req.issue_tv" onclick="sendQuickRequest('req.issue_tv','issue')">TV s'punon</button>
+        <button class="req-chip" data-i18n="req.issue_toilet" onclick="sendQuickRequest('req.issue_toilet','issue')">Tualeti i prishur</button>
+        <button class="req-chip" data-i18n="req.issue_plumbing" onclick="sendQuickRequest('req.issue_plumbing','issue')">Problem hidraulik</button>
+        <button class="req-chip" data-i18n="req.issue_electric" onclick="sendQuickRequest('req.issue_electric','issue')">Problem elektrik</button>
       </div>
 
       <h3 class="group-heading" data-i18n="quick.toiletries.heading">Artikuj higjienikë</h3>
@@ -475,14 +480,6 @@ details.faq p{ font-size:12.5px; opacity:0.65; margin:8px 0 0; line-height:1.6; 
         <button id="dnd-toggle" onclick="toggleDnd()" style="width:46px; height:26px; border-radius:14px; border:none; background:var(--line); position:relative; cursor:pointer; transition:background 0.2s ease;">
           <span id="dnd-knob" style="position:absolute; top:2px; left:2px; width:22px; height:22px; border-radius:50%; background:var(--white); box-shadow:0 1px 3px rgba(0,0,0,0.25); transition:transform 0.2s ease;"></span>
         </button>
-      </div>
-
-      <h3 class="group-heading" data-i18n="quick.issue.heading">Problem teknik</h3>
-      <div class="chip-row">
-        <button class="req-chip" data-i18n="req.issue_ac" onclick="sendQuickRequest('req.issue_ac','issue')">Klima s'punon</button>
-        <button class="req-chip" data-i18n="req.issue_tv" onclick="sendQuickRequest('req.issue_tv','issue')">TV s'punon</button>
-        <button class="req-chip" data-i18n="req.issue_plumbing" onclick="sendQuickRequest('req.issue_plumbing','issue')">Problem hidraulik</button>
-        <button class="req-chip" data-i18n="req.issue_electric" onclick="sendQuickRequest('req.issue_electric','issue')">Problem elektrik</button>
       </div>
 
       <h3 class="group-heading" data-i18n="room.amenitiesHeading">Pajisjet</h3>
@@ -738,8 +735,7 @@ const translations = {
     "dnd.enabledToast":"'Mos shqetësoni' u aktivizua","dnd.disabledToast":"'Mos shqetësoni' u çaktivizua",
     "dnd.enabledMsg":"Mysafiri aktivizoi 'Mos shqetësoni'.","dnd.disabledMsg":"Mysafiri çaktivizoi 'Mos shqetësoni'.",
     "push.enable":"🔔 Aktivo njoftimet në telefon","push.enabled":"Njoftimet u aktivizuan!","push.denied":"Leja për njoftime u refuzua.","push.unavailable":"Njoftimet s'janë të disponueshme tani.",
-    "quick.issue.heading":"Problem teknik",
-    "req.issue_ac":"Klima s'punon","req.issue_tv":"TV s'punon","req.issue_plumbing":"Problem hidraulik","req.issue_electric":"Problem elektrik",
+    "req.issue_ac":"Klima s'punon","req.issue_tv":"TV s'punon","req.issue_toilet":"Tualeti i prishur","req.issue_plumbing":"Problem hidraulik","req.issue_electric":"Problem elektrik",
     "req.sentPrefix":"Kërkesë nga dhoma:","req.confirmToast":"Kërkesa u dërgua te recepsioni",
     "room.amenitiesHeading":"Pajisjet",
     "amenity.ac.name":"Klima","amenity.ac.note":"Kontrolli në murin pranë derës së banjës. 18-26°C.",
@@ -812,8 +808,7 @@ const translations = {
     "dnd.enabledToast":"Do Not Disturb turned on","dnd.disabledToast":"Do Not Disturb turned off",
     "dnd.enabledMsg":"The guest turned on Do Not Disturb.","dnd.disabledMsg":"The guest turned off Do Not Disturb.",
     "push.enable":"🔔 Enable phone notifications","push.enabled":"Notifications enabled!","push.denied":"Notification permission was denied.","push.unavailable":"Notifications aren't available right now.",
-    "quick.issue.heading":"Report a problem",
-    "req.issue_ac":"AC not working","req.issue_tv":"TV not working","req.issue_plumbing":"Plumbing issue","req.issue_electric":"Electrical issue",
+    "req.issue_ac":"AC not working","req.issue_tv":"TV not working","req.issue_toilet":"Broken toilet","req.issue_plumbing":"Plumbing issue","req.issue_electric":"Electrical issue",
     "req.sentPrefix":"Room request:","req.confirmToast":"Request sent to the front desk",
     "room.amenitiesHeading":"Amenities",
     "amenity.ac.name":"Air conditioning","amenity.ac.note":"Control panel by the bathroom door. 18-26°C.",
@@ -886,8 +881,7 @@ const translations = {
     "dnd.enabledToast":"'Non disturbare' attivato","dnd.disabledToast":"'Non disturbare' disattivato",
     "dnd.enabledMsg":"L'ospite ha attivato 'Non disturbare'.","dnd.disabledMsg":"L'ospite ha disattivato 'Non disturbare'.",
     "push.enable":"🔔 Attiva notifiche sul telefono","push.enabled":"Notifiche attivate!","push.denied":"Il permesso per le notifiche è stato negato.","push.unavailable":"Le notifiche non sono disponibili ora.",
-    "quick.issue.heading":"Segnala un problema",
-    "req.issue_ac":"Aria condizionata non funziona","req.issue_tv":"TV non funziona","req.issue_plumbing":"Problema idraulico","req.issue_electric":"Problema elettrico",
+    "req.issue_ac":"Aria condizionata non funziona","req.issue_tv":"TV non funziona","req.issue_toilet":"WC rotto","req.issue_plumbing":"Problema idraulico","req.issue_electric":"Problema elettrico",
     "req.sentPrefix":"Richiesta dalla camera:","req.confirmToast":"Richiesta inviata alla reception",
     "room.amenitiesHeading":"Servizi",
     "amenity.ac.name":"Aria condizionata","amenity.ac.note":"Pannello vicino alla porta del bagno. 18-26°C.",
@@ -960,8 +954,7 @@ const translations = {
     "dnd.enabledToast":"'Bitte nicht stören' aktiviert","dnd.disabledToast":"'Bitte nicht stören' deaktiviert",
     "dnd.enabledMsg":"Der Gast hat 'Bitte nicht stören' aktiviert.","dnd.disabledMsg":"Der Gast hat 'Bitte nicht stören' deaktiviert.",
     "push.enable":"🔔 Telefon-Benachrichtigungen aktivieren","push.enabled":"Benachrichtigungen aktiviert!","push.denied":"Die Berechtigung für Benachrichtigungen wurde verweigert.","push.unavailable":"Benachrichtigungen sind momentan nicht verfügbar.",
-    "quick.issue.heading":"Problem melden",
-    "req.issue_ac":"Klimaanlage funktioniert nicht","req.issue_tv":"TV funktioniert nicht","req.issue_plumbing":"Sanitärproblem","req.issue_electric":"Elektrisches Problem",
+    "req.issue_ac":"Klimaanlage funktioniert nicht","req.issue_tv":"TV funktioniert nicht","req.issue_toilet":"Toilette defekt","req.issue_plumbing":"Sanitärproblem","req.issue_electric":"Elektrisches Problem",
     "req.sentPrefix":"Anfrage aus dem Zimmer:","req.confirmToast":"Anfrage an die Rezeption gesendet",
     "room.amenitiesHeading":"Ausstattung",
     "amenity.ac.name":"Klimaanlage","amenity.ac.note":"Bedienfeld neben der Badezimmertür. 18-26°C.",
